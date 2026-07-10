@@ -1,0 +1,36 @@
+/*
+Post API
+*/
+
+import client from "./client";
+import { unwrapApiResponse } from "./response";
+
+export async function createPost(data) {
+    const res = await client.post("/posts", data);
+    return unwrapApiResponse(res);
+}
+
+export async function getPosts(params = {}) {
+    const res = await client.get("/posts", { params });
+    return unwrapApiResponse(res);
+}
+
+export async function getTagSuggestions(query, limit = 8) {
+    const res = await client.get("/posts/tags", {
+        params: {
+            query,
+            limit
+        }
+    });
+    return unwrapApiResponse(res);
+}
+
+export async function getPost(id) {
+    const res = await client.get("/posts/" + id);
+    return unwrapApiResponse(res);
+}
+
+export async function purchasePost(id) {
+    const res = await client.post("/posts/" + id + "/purchase");
+    return unwrapApiResponse(res);
+}

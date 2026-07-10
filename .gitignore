@@ -1,0 +1,14 @@
+.deploy/
+backend/coverage/
+backend/uploads/
+backend/node_modules/
+backend/.env
+backend/.env.*
+frontend/content-platform-ui/node_modules/
+frontend/content-platform-ui/.env
+dist/
+build/
+logs/
+*.log
+*.txt
+temp/

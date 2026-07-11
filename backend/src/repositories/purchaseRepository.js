@@ -62,7 +62,8 @@ async function purchasePost(userId, post) {
         const [transactionResult] = await connection.query(
             `INSERT INTO payment_transaction
                 (user_id, related_user_id, post_id, type, commission, amount, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             RETURNING id`,
             [userId, post.author_id, post.id, "purchase", commissionRate, price, "completed"]
         );
 

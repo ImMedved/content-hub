@@ -36,8 +36,12 @@ async function listPosts(req, res) {
         const data = await postService.listPosts(
             {
                 limit: req.query.limit,
+                offset: req.query.offset,
                 authorId: req.query.authorId,
+                author: req.query.author,
                 tag: req.query.tag,
+                sort: req.query.sort,
+                accessType: req.query.accessType,
                 includeTags: parseTagList(req.query.includeTags),
                 excludeTags: parseTagList(req.query.excludeTags)
             },
@@ -64,6 +68,34 @@ async function purchasePost(req, res) {
         fail(res, 400, err.message);
     }
 }
+
+async function updatePost(req, res) {
+    try {
+        const result = await postService.updatePost(req.user.userId, req.params.id, req.body);
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
+
+async function deletePost(req, res) {
+    try {
+        const result = await postService.deletePost(req.user.userId, req.params.id);
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
+
+async function pinPost(req, res) {
+    try {
+        const result = await postService.pinPost(req.user.userId, req.params.id);
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
+
 async function getReactionUsers(req, res) {
     try {
         const data = await postService.getReactionUsers(req.params.id, req.user.userId);
@@ -78,5 +110,8 @@ module.exports = {
     listPosts,
     listTags,
     purchasePost,
-    getReactionUsers
+    getReactionUsers,
+    updatePost,
+    deletePost,
+    pinPost
 };

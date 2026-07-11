@@ -1,14 +1,14 @@
-/*
-Feed page
-*/
-
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { getFeed } from "../api/feed";
 import { getPosts, getTagSuggestions } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
+import EmptyState from "../components/EmptyState";
+import FeedFiltersModal from "../components/FeedFiltersModal";
 import PostCard from "../components/PostCard";
+import ScrollToTopButton from "../components/ScrollToTopButton";
 import { useAuth } from "../context/auth-context";
+import { useToast } from "../context/useToast";
 
 function normalizeTag(value) {
     return String(value || "").trim().toLowerCase();
@@ -22,69 +22,64 @@ function isBoughtPost(post, currentUserId = null) {
     );
 }
 
-function TagAutocompleteField({
-    label,
-    selectedTags,
-    inputValue,
-    suggestions,
-    placeholder,
-    onInputChange,
-    onSelectTag,
-    onRemoveTag
-}) {
-    return (
-        <label className="field">
-            <span className="field__label">{label}</span>
-            <div className="tag-picker">
-                <div className="tag-picker__control">
-                    {selectedTags.map((tag) => (
-                        <button
-                            key={tag}
-                            className="tag-picker__chip"
-                            type="button"
-                            onClick={() => onRemoveTag(tag)}
-                        >
-                            <span>#{tag}</span>
-                            <span className="tag-picker__chip-remove">x</span>
-                        </button>
-                    ))}
+function sortFollowingPosts(posts, sort) {
+    const items = [...posts];
 
-                    <input
-                        className="tag-picker__input"
-                        value={inputValue}
-                        placeholder={placeholder}
-                        onChange={(event) => onInputChange(event.target.value)}
-                    />
-                </div>
+    if (sort === "expensive") {
+        return items.sort((left, right) => Number(right.price || 0) - Number(left.price || 0));
+    }
 
-                {suggestions.length > 0 && (
-                    <div className="tag-picker__suggestions">
-                        {suggestions.map((tag) => (
-                            <button
-                                key={`${label}-${tag}`}
-                                className="tag-picker__suggestion"
-                                type="button"
-                                onClick={() => onSelectTag(tag)}
-                            >
-                                #{tag}
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </label>
-    );
+    if (sort === "new") {
+        return items.sort(
+            (left, right) => new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime()
+        );
+    }
+
+    return items;
+}
+
+function matchesLocalFilters(post, includeTags, excludeTags, authorQuery, accessType, boughtOnly, currentUserId) {
+    const tags = Array.isArray(post.tags) ? post.tags : [];
+    const normalizedAuthorQuery = String(authorQuery || "").trim().toLowerCase();
+    const authorText = `${post.author_username || ""} ${post.authorName || ""}`.toLowerCase();
+
+    if (includeTags.some((tag) => !tags.includes(tag))) {
+        return false;
+    }
+
+    if (excludeTags.some((tag) => tags.includes(tag))) {
+        return false;
+    }
+
+    if (normalizedAuthorQuery && !authorText.includes(normalizedAuthorQuery)) {
+        return false;
+    }
+
+    if (accessType && post.access_type !== accessType) {
+        return false;
+    }
+
+    if (boughtOnly && !isBoughtPost(post, currentUserId)) {
+        return false;
+    }
+
+    return true;
 }
 
 function FeedPage() {
     const location = useLocation();
     const { user } = useAuth();
+    const { showToast } = useToast();
+    const [mode, setMode] = useState("following");
+    const [sort, setSort] = useState("new");
+    const [accessType, setAccessType] = useState("");
+    const [limit, setLimit] = useState(10);
     const [followedPosts, setFollowedPosts] = useState([]);
-    const [discoverPosts, setDiscoverPosts] = useState([]);
+    const [allPosts, setAllPosts] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [discoverLoading, setDiscoverLoading] = useState(true);
+    const [allLoading, setAllLoading] = useState(true);
     const [error, setError] = useState("");
-    const [discoverError, setDiscoverError] = useState("");
+    const [allError, setAllError] = useState("");
     const [isTagModalOpen, setIsTagModalOpen] = useState(false);
     const [appliedIncludeTags, setAppliedIncludeTags] = useState([]);
     const [appliedExcludeTags, setAppliedExcludeTags] = useState([]);
@@ -98,43 +93,74 @@ function FeedPage() {
     const [excludeInput, setExcludeInput] = useState("");
     const [includeSuggestions, setIncludeSuggestions] = useState([]);
     const [excludeSuggestions, setExcludeSuggestions] = useState([]);
-    const followedPostIds = new Set(followedPosts.map((post) => Number(post.id)));
     const currentUserId = user?.id ?? null;
-    const visibleDiscoverPosts = discoverPosts
-        .filter((post) => !followedPostIds.has(Number(post.id)))
-        .filter((post) => !appliedBoughtOnly || isBoughtPost(post, currentUserId));
 
-    function handleIncludeInputChange(value) {
-        setIncludeInput(value);
+    const loadFeed = useCallback(async () => {
+        setLoading(true);
+        setError("");
 
-        if (!normalizeTag(value)) {
-            setIncludeSuggestions([]);
+        try {
+            const data = await getFeed();
+            setFollowedPosts(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setError(getApiErrorMessage(err));
+            setFollowedPosts([]);
+        } finally {
+            setLoading(false);
         }
-    }
-
-    function handleExcludeInputChange(value) {
-        setExcludeInput(value);
-
-        if (!normalizeTag(value)) {
-            setExcludeSuggestions([]);
-        }
-    }
-
-    useEffect(() => {
-        async function initialLoad() {
-            await loadFeed();
-        }
-
-        initialLoad();
     }, []);
 
-    useEffect(() => {
-        async function syncDiscover() {
-            await loadDiscover(appliedIncludeTags, appliedExcludeTags, appliedAuthorQuery);
-        }
+    const loadAllPosts = useCallback(async () => {
+        setAllLoading(true);
+        setAllError("");
 
-        syncDiscover();
-    }, [appliedIncludeTags, appliedExcludeTags, appliedAuthorQuery]);
+        try {
+            const params = {
+                limit,
+                sort
+            };
+
+            if (appliedIncludeTags.length > 0) {
+                params.includeTags = appliedIncludeTags.join(",");
+            }
+
+            if (appliedExcludeTags.length > 0) {
+                params.excludeTags = appliedExcludeTags.join(",");
+            }
+
+            if (String(appliedAuthorQuery || "").trim()) {
+                params.author = String(appliedAuthorQuery).trim();
+            }
+
+            if (accessType) {
+                params.accessType = accessType;
+            }
+
+            const data = await getPosts(params);
+            setAllPosts(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setAllError(getApiErrorMessage(err));
+            setAllPosts([]);
+        } finally {
+            setAllLoading(false);
+        }
+    }, [limit, sort, appliedIncludeTags, appliedExcludeTags, appliedAuthorQuery, accessType]);
+
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            loadFeed();
+        }, 0);
+
+        return () => clearTimeout(timeoutId);
+    }, [loadFeed]);
+
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            loadAllPosts();
+        }, 0);
+
+        return () => clearTimeout(timeoutId);
+    }, [loadAllPosts]);
 
     useEffect(() => {
         if (typeof location.state?.restoreScrollY === "number") {
@@ -147,15 +173,15 @@ function FeedPage() {
             return;
         }
 
-        const trimmedValue = normalizeTag(includeInput);
+        const normalizedValue = normalizeTag(includeInput);
 
-        if (!trimmedValue) {
+        if (!normalizedValue) {
             return;
         }
 
         const timeoutId = setTimeout(async () => {
             try {
-                const tags = await getTagSuggestions(trimmedValue);
+                const tags = await getTagSuggestions(normalizedValue);
                 setIncludeSuggestions(
                     Array.isArray(tags)
                         ? tags.filter((tag) => !draftIncludeTags.includes(tag) && !draftExcludeTags.includes(tag))
@@ -174,15 +200,15 @@ function FeedPage() {
             return;
         }
 
-        const trimmedValue = normalizeTag(excludeInput);
+        const normalizedValue = normalizeTag(excludeInput);
 
-        if (!trimmedValue) {
+        if (!normalizedValue) {
             return;
         }
 
         const timeoutId = setTimeout(async () => {
             try {
-                const tags = await getTagSuggestions(trimmedValue);
+                const tags = await getTagSuggestions(normalizedValue);
                 setExcludeSuggestions(
                     Array.isArray(tags)
                         ? tags.filter((tag) => !draftExcludeTags.includes(tag) && !draftIncludeTags.includes(tag))
@@ -196,55 +222,25 @@ function FeedPage() {
         return () => clearTimeout(timeoutId);
     }, [excludeInput, isTagModalOpen, draftExcludeTags, draftIncludeTags]);
 
-    async function loadFeed() {
-        setLoading(true);
-        setError("");
-
-        try {
-            const data = await getFeed();
-            setFollowedPosts(Array.isArray(data) ? data : []);
-        } catch (err) {
-            setError(getApiErrorMessage(err));
-            setFollowedPosts([]);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    async function loadDiscover(includeTags = [], excludeTags = [], authorQuery = "") {
-        setDiscoverLoading(true);
-        setDiscoverError("");
-
-        try {
-            const params = {};
-
-            if (includeTags.length > 0) {
-                params.includeTags = includeTags.join(",");
-            }
-
-            if (excludeTags.length > 0) {
-                params.excludeTags = excludeTags.join(",");
-            }
-
-            if (String(authorQuery || "").trim()) {
-                params.author = String(authorQuery).trim();
-            }
-
-            const data = await getPosts(params);
-            setDiscoverPosts(Array.isArray(data) ? data : []);
-        } catch (err) {
-            setDiscoverError(getApiErrorMessage(err));
-            setDiscoverPosts([]);
-        } finally {
-            setDiscoverLoading(false);
-        }
-    }
-
     async function refreshAll() {
-        await Promise.all([
-            loadFeed(),
-            loadDiscover(appliedIncludeTags, appliedExcludeTags, appliedAuthorQuery)
-        ]);
+        await Promise.all([loadFeed(), loadAllPosts()]);
+        showToast("Feed refreshed", "success");
+    }
+
+    function handleIncludeInputChange(value) {
+        setIncludeInput(value);
+
+        if (!normalizeTag(value)) {
+            setIncludeSuggestions([]);
+        }
+    }
+
+    function handleExcludeInputChange(value) {
+        setExcludeInput(value);
+
+        if (!normalizeTag(value)) {
+            setExcludeSuggestions([]);
+        }
     }
 
     function openTagModal() {
@@ -279,12 +275,13 @@ function FeedPage() {
             setDraftExcludeTags((current) => current.filter((tag) => tag !== normalizedTag));
             setIncludeInput("");
             setIncludeSuggestions([]);
-        } else {
-            setDraftExcludeTags((current) => current.includes(normalizedTag) ? current : [...current, normalizedTag]);
-            setDraftIncludeTags((current) => current.filter((tag) => tag !== normalizedTag));
-            setExcludeInput("");
-            setExcludeSuggestions([]);
+            return;
         }
+
+        setDraftExcludeTags((current) => current.includes(normalizedTag) ? current : [...current, normalizedTag]);
+        setDraftIncludeTags((current) => current.filter((tag) => tag !== normalizedTag));
+        setExcludeInput("");
+        setExcludeSuggestions([]);
     }
 
     function removeDraftTag(kind, tagToRemove) {
@@ -316,17 +313,48 @@ function FeedPage() {
         closeTagModal();
     }
 
-    function handlePostTagClick(tag) {
+    function handleApplyTag(tag) {
         const normalizedTag = normalizeTag(tag);
+        setMode("all");
         setAppliedIncludeTags(normalizedTag ? [normalizedTag] : []);
         setAppliedExcludeTags([]);
     }
+
+    const visibleFollowingPosts = sortFollowingPosts(
+        followedPosts.filter((post) =>
+            matchesLocalFilters(
+                post,
+                appliedIncludeTags,
+                appliedExcludeTags,
+                appliedAuthorQuery,
+                accessType,
+                appliedBoughtOnly,
+                currentUserId
+            )
+        ),
+        sort
+    );
+
+    const visibleAllPosts = allPosts.filter((post) =>
+        matchesLocalFilters(
+            post,
+            appliedIncludeTags,
+            appliedExcludeTags,
+            appliedAuthorQuery,
+            accessType,
+            appliedBoughtOnly,
+            currentUserId
+        )
+    );
+
+    const visiblePosts = mode === "following" ? visibleFollowingPosts : visibleAllPosts;
+    const sectionTitle = mode === "following" ? "Following feed" : "All posts";
 
     return (
         <div className="page-stack">
             <div className="page-heading">
                 <div>
-                    <h1 className="page-title">Following feed</h1>
+                    <h1 className="page-title">{sectionTitle}</h1>
                 </div>
 
                 <div className="page-actions">
@@ -337,149 +365,125 @@ function FeedPage() {
                         Refresh
                     </button>
                     <button className="btn btn--secondary" onClick={openTagModal} type="button">
-                        Search tags
+                        Filters
                     </button>
                 </div>
             </div>
 
-            {location.state?.success && <div className="muted-box">{location.state.success}</div>}
+            {location.state?.success && <EmptyState>{location.state.success}</EmptyState>}
 
-            {loading && <div className="muted-box">Loading posts...</div>}
-            {error && <div className="muted-box">{error}</div>}
-            {!loading && !error && followedPosts.length === 0 && (
-                <div className="muted-box">
-                    Your following feed is empty. Follow a few authors or browse the latest posts below.
+            <div className="feed-toolbar card">
+                <div className="card__body feed-toolbar__body">
+                    <label className="field">
+                        <span className="field__label">Mode</span>
+                        <select className="field__select" value={mode} onChange={(event) => setMode(event.target.value)}>
+                            <option value="following">Following</option>
+                            <option value="all">All posts</option>
+                        </select>
+                    </label>
+
+                    <label className="field">
+                        <span className="field__label">Sort</span>
+                        <select className="field__select" value={sort} onChange={(event) => setSort(event.target.value)}>
+                            <option value="new">New</option>
+                            <option value="popular">Popular</option>
+                            <option value="expensive">Expensive</option>
+                        </select>
+                    </label>
+
+                    <label className="field">
+                        <span className="field__label">Access</span>
+                        <select
+                            className="field__select"
+                            value={accessType}
+                            onChange={(event) => setAccessType(event.target.value)}
+                        >
+                            <option value="">All</option>
+                            <option value="free">Free</option>
+                            <option value="paid">Paid</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            {(appliedIncludeTags.length > 0 || appliedExcludeTags.length > 0 || appliedBoughtOnly || appliedAuthorQuery) && (
+                <div className="tag-filter-summary">
+                    {appliedIncludeTags.map((tag) => (
+                        <span key={`include-${tag}`} className="tag-filter-pill">
+                            Include #{tag}
+                        </span>
+                    ))}
+                    {appliedExcludeTags.map((tag) => (
+                        <span key={`exclude-${tag}`} className="tag-filter-pill tag-filter-pill--muted">
+                            Exclude #{tag}
+                        </span>
+                    ))}
+                    {appliedBoughtOnly && <span className="tag-filter-pill">Bought only</span>}
+                    {appliedAuthorQuery && <span className="tag-filter-pill">Author: {appliedAuthorQuery}</span>}
                 </div>
             )}
 
+            {mode === "following" && loading && <EmptyState>Loading following feed...</EmptyState>}
+            {mode === "following" && error && <EmptyState>{error}</EmptyState>}
+            {mode === "all" && allLoading && <EmptyState>Loading posts...</EmptyState>}
+            {mode === "all" && allError && <EmptyState>{allError}</EmptyState>}
+
+            {!loading && !error && !allLoading && !allError && visiblePosts.length === 0 && (
+                <EmptyState>
+                    {mode === "following"
+                        ? "Your following feed is empty. Try following users, creating a post, or switching to all posts."
+                        : "No posts match the current filters. Try clearing filters or loading more posts."}
+                </EmptyState>
+            )}
+
             <div className="post-list">
-                {followedPosts.map((post) => (
+                {visiblePosts.map((post) => (
                     <PostCard
-                        key={`followed-${post.id}`}
+                        key={`${mode}-${post.id}`}
                         post={post}
-                        onTagClick={handlePostTagClick}
-                        compact
+                        onTagApply={handleApplyTag}
+                        compact={mode === "all"}
                     />
                 ))}
             </div>
 
-            <section className="section-stack">
-                <div className="section-heading">
-                    <h2 className="page-title page-title--section">Latest posts</h2>
-                </div>
-
-                {(appliedIncludeTags.length > 0 || appliedExcludeTags.length > 0 || appliedBoughtOnly) && (
-                    <div className="tag-filter-summary">
-                        {appliedIncludeTags.map((tag) => (
-                            <span key={`include-${tag}`} className="tag-filter-pill">
-                                Include #{tag}
-                            </span>
-                        ))}
-                        {appliedExcludeTags.map((tag) => (
-                            <span key={`exclude-${tag}`} className="tag-filter-pill tag-filter-pill--muted">
-                                Exclude #{tag}
-                            </span>
-                        ))}
-                        {appliedBoughtOnly && (
-                            <span className="tag-filter-pill">Bought only</span>
-                        )}
-                        {appliedAuthorQuery && (
-                            <span className="tag-filter-pill">Author: {appliedAuthorQuery}</span>
-                        )}
-                    </div>
-                )}
-
-                {discoverLoading && <div className="muted-box">Loading latest posts...</div>}
-                {discoverError && <div className="muted-box">{discoverError}</div>}
-                {!discoverLoading && !discoverError && visibleDiscoverPosts.length === 0 && (
-                    <div className="muted-box">No posts match the current tag filters.</div>
-                )}
-
-                <div className="post-list">
-                    {visibleDiscoverPosts.map((post) => (
-                        <PostCard
-                            key={`discover-${post.id}`}
-                            post={post}
-                            onTagClick={handlePostTagClick}
-                            compact
-                        />
-                    ))}
-                </div>
-            </section>
-
-            {isTagModalOpen && (
-                <div className="feed-modal-backdrop" onClick={closeTagModal} role="presentation">
-                    <div className="feed-modal card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
-                        <div className="card__body feed-modal__body">
-                            <div className="feed-modal__header">
-                                <div>
-                                    <h2 className="page-title page-title--section">Search by tags</h2>
-                                    <p className="page-subtitle">Filter the latest posts by included and excluded tags.</p>
-                                </div>
-                            </div>
-
-                            <TagAutocompleteField
-                                label="Choose tags"
-                                selectedTags={draftIncludeTags}
-                                inputValue={includeInput}
-                                suggestions={includeSuggestions}
-                                placeholder="Start typing a tag"
-                                onInputChange={handleIncludeInputChange}
-                                onSelectTag={(tag) => addDraftTag("include", tag)}
-                                onRemoveTag={(tag) => removeDraftTag("include", tag)}
-                            />
-
-                            <TagAutocompleteField
-                                label="Exclude tags"
-                                selectedTags={draftExcludeTags}
-                                inputValue={excludeInput}
-                                suggestions={excludeSuggestions}
-                                placeholder="Start typing a tag"
-                                onInputChange={handleExcludeInputChange}
-                                onSelectTag={(tag) => addDraftTag("exclude", tag)}
-                                onRemoveTag={(tag) => removeDraftTag("exclude", tag)}
-                            />
-
-                            {/*
-                            Ready-to-enable author search.
-                            Backend support is already wired through the `author` query param.
-                            Uncomment this block to expose a single-value author filter in the modal.
-                            <label className="field">
-                                <span className="field__label">Author</span>
-                                <input
-                                    className="field__input"
-                                    value={draftAuthorQuery}
-                                    onChange={(event) => setDraftAuthorQuery(event.target.value)}
-                                    placeholder="Username or display name"
-                                />
-                            </label>
-                            */}
-
-                            <label className="checkbox-field" htmlFor="bought-only-filter">
-                                <input
-                                    id="bought-only-filter"
-                                    type="checkbox"
-                                    checked={draftBoughtOnly}
-                                    onChange={(event) => setDraftBoughtOnly(event.target.checked)}
-                                />
-                                <span>Show only bought paid posts</span>
-                            </label>
-
-                            <div className="form-actions">
-                                <button className="btn btn--primary" type="button" onClick={applyTagFilters}>
-                                    Apply filters
-                                </button>
-                                <button className="btn btn--secondary" type="button" onClick={clearTagFilters}>
-                                    Clear
-                                </button>
-                                <button className="btn btn--secondary" type="button" onClick={closeTagModal}>
-                                    Close
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+            {mode === "all" && !allLoading && (
+                <div className="form-actions">
+                    <button
+                        className="btn btn--secondary"
+                        type="button"
+                        onClick={() => setLimit((current) => current + 10)}
+                    >
+                        Load more
+                    </button>
                 </div>
             )}
+
+            {isTagModalOpen && (
+                <FeedFiltersModal
+                    draftIncludeTags={draftIncludeTags}
+                    draftExcludeTags={draftExcludeTags}
+                    draftBoughtOnly={draftBoughtOnly}
+                    draftAuthorQuery={draftAuthorQuery}
+                    includeInput={includeInput}
+                    excludeInput={excludeInput}
+                    includeSuggestions={includeSuggestions}
+                    excludeSuggestions={excludeSuggestions}
+                    onIncludeInputChange={handleIncludeInputChange}
+                    onExcludeInputChange={handleExcludeInputChange}
+                    onSelectIncludeTag={(tag) => addDraftTag("include", tag)}
+                    onSelectExcludeTag={(tag) => addDraftTag("exclude", tag)}
+                    onRemoveIncludeTag={(tag) => removeDraftTag("include", tag)}
+                    onRemoveExcludeTag={(tag) => removeDraftTag("exclude", tag)}
+                    onAuthorQueryChange={setDraftAuthorQuery}
+                    onBoughtOnlyChange={setDraftBoughtOnly}
+                    onApply={applyTagFilters}
+                    onClear={clearTagFilters}
+                    onClose={closeTagModal}
+                />
+            )}
+
+            <ScrollToTopButton />
         </div>
     );
 }

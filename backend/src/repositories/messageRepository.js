@@ -44,7 +44,7 @@ function mapMessage(row) {
 
 async function createMessage(senderId, recipientId, body) {
     const [result] = await db.query(
-        "INSERT INTO direct_message (sender_id, recipient_id, body) VALUES (?, ?, ?)",
+        "INSERT INTO direct_message (sender_id, recipient_id, body) VALUES (?, ?, ?) RETURNING id",
         [senderId, recipientId, body]
     );
 

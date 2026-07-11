@@ -51,7 +51,7 @@ app.get("/health", async (req, res) => {
 });
 
 // Во время запуска тестов React не нужен, поэтому вся логика обслуживания frontend отключается.
-if (process.env.NODE_ENV !== "test") {
+if (process.env.NODE_ENV !== "test" && process.env.SERVE_FRONTEND !== "false") {
     app.use(express.static(frontendDistPath)); // Express будет обслуживать статические файлы из папки dist фронтенда
     // То есть dist/assets/main.js будет доступен по адресу http://server:port/assets/main.js
 

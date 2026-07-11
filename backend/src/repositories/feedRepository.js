@@ -19,7 +19,7 @@ async function getFeed(userId, limit = 20) {
           ON p.author_id = f.following_id
          AND f.follower_id = ?
         WHERE f.follower_id IS NOT NULL OR p.author_id = ?
-        ORDER BY p.created_at DESC
+        ORDER BY p.is_pinned DESC, p.created_at DESC
         LIMIT ?
     `, [userId, userId, limit]);
 

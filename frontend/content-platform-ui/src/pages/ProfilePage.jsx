@@ -9,6 +9,7 @@ import {
     getUserFollowing,
     getUserProfile
 } from "../api/user";
+import EmptyState from "../components/EmptyState";
 import PostCard from "../components/PostCard";
 import { useAuth } from "../context/auth-context";
 import { resolveMediaUrl } from "../utils/media";
@@ -150,6 +151,10 @@ function ProfilePage() {
                                 <span>Status: {profile.status || "active"}</span>
                                 <span>Followers: {followers.length}</span>
                                 <span>Following: {following.length}</span>
+                                <span>Posts: {posts.length}</span>
+                                <span>
+                                    Joined: {profile.created_at ? new Date(profile.created_at).toLocaleDateString() : ""}
+                                </span>
                             </div>
 
                             {!isOwnProfile && (
@@ -185,7 +190,7 @@ function ProfilePage() {
                                             </div>
                                         </Link>
                                     ))}
-                                    {followers.length === 0 && <div className="muted-box">No followers yet.</div>}
+                                    {followers.length === 0 && <EmptyState>No followers yet.</EmptyState>}
                                 </div>
                             </div>
                         </section>
@@ -203,7 +208,7 @@ function ProfilePage() {
                                             </div>
                                         </Link>
                                     ))}
-                                    {following.length === 0 && <div className="muted-box">No subscriptions yet.</div>}
+                                    {following.length === 0 && <EmptyState>No subscriptions yet.</EmptyState>}
                                 </div>
                             </div>
                         </section>
@@ -211,10 +216,20 @@ function ProfilePage() {
 
                     <section className="post-list">
                         <h3 className="page-title page-title--section">User posts</h3>
-                        {posts.length === 0 && <div className="muted-box">No posts yet.</div>}
+                        {posts.length === 0 && (
+                            <EmptyState>
+                                No posts yet. Try publishing something new or pinning a favorite once you do.
+                            </EmptyState>
+                        )}
                         {posts.map((post) => (
-                                
-                            <PostCard key={post.id} post={post} onTagClick={() => null} />
+                            <PostCard
+                                key={post.id}
+                                post={post}
+                                onTagApply={null}
+                                showManagementActions={isOwnProfile}
+                                onPostDeleted={loadProfile}
+                                onPostPinned={loadProfile}
+                            />
                         ))}
                     </section>
                 </div>

@@ -1,22 +1,78 @@
 services:
-  mysql:
-    image: mysql:8
-    container_name: content-mysql
-    restart: always
+  postgres:
+    image: postgres:16-alpine
+    container_name: content-postgres
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: content_platform
+      POSTGRES_DB: content_platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
     ports:
-      - "3306:3306"
+      - "5434:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
-      
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d content_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: content-redis
-    restart: always
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6381:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: content-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5002
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: content_platform
+      DB_USER: postgres
+      DB_PASSWORD: password
+      JWT_SECRET: mysecretkey
+      EMAIL_HASH_SECRET: content-platform-email
+      REDIS_URL: redis://redis:6379
+      DB_SCHEMA_STRATEGY: sync_reset_on_change
+      SERVE_FRONTEND: "false"
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./backend/uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend/content-platform-ui
+      args:
+        VITE_API_BASE_URL: http://localhost:5002/api/v1
+    container_name: content-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:80"
 
 volumes:
-  mysql_data:
+  postgres_data:
+  redis_data:

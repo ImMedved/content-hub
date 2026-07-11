@@ -13,7 +13,13 @@ async function hasLegacyEmailColumn() {
         return hasLegacyEmailColumnCache;
     }
 
-    const [rows] = await db.query("SHOW COLUMNS FROM users LIKE 'email'");
+    const [rows] = await db.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'users'
+           AND column_name = 'email'`
+    );
     hasLegacyEmailColumnCache = rows.length > 0;
     return hasLegacyEmailColumnCache;
 }
@@ -21,8 +27,8 @@ async function hasLegacyEmailColumn() {
 async function createUser({ username, emailHash, passwordHash }) {
     const legacyEmailColumn = await hasLegacyEmailColumn();
     const query = legacyEmailColumn
-        ? "INSERT INTO users (username, email_hash, email, password_hash, display_name) VALUES (?, ?, ?, ?, ?)"
-        : "INSERT INTO users (username, email_hash, password_hash, display_name) VALUES (?, ?, ?, ?)";
+        ? "INSERT INTO users (username, email_hash, email, password_hash, display_name) VALUES (?, ?, ?, ?, ?) RETURNING id"
+        : "INSERT INTO users (username, email_hash, password_hash, display_name) VALUES (?, ?, ?, ?) RETURNING id";
     const values = legacyEmailColumn
         ? [username, emailHash, emailHash, passwordHash, username]
         : [username, emailHash, passwordHash, username];
@@ -90,10 +96,18 @@ async function updateUser(userId, fields) {
     return findById(userId);
 }
 
+async function updateLastLoginAt(userId) {
+    await db.query(
+        "UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [userId]
+    );
+}
+
 module.exports = {
     createUser,
     findByEmailHash,
     findById,
     findManyByIds,
-    updateUser
+    updateUser,
+    updateLastLoginAt
 };

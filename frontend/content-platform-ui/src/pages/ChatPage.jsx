@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { getConversation, sendMessage, waitForMessageUpdates } from "../api/message";
 import { getApiErrorMessage } from "../api/response";
 import { getUser } from "../api/user";
+import ChatPeerStatus from "../components/ChatPeerStatus";
 import { resolveMediaUrl } from "../utils/media";
 
 function mergeMessages(current, next) {
@@ -185,6 +186,7 @@ function ChatPage() {
                                 <div>
                                     <div className="user-card__name">{peer.display_name || peer.username}</div>
                                     <div className="user-card__meta">@{peer.username}</div>
+                                    <ChatPeerStatus userId={peer.id} />
                                 </div>
                             </div>
                         )}

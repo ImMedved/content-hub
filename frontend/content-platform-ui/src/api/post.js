@@ -10,6 +10,21 @@ export async function createPost(data) {
     return unwrapApiResponse(res);
 }
 
+export async function updatePost(id, data) {
+    const res = await client.put(`/posts/${id}`, data);
+    return unwrapApiResponse(res);
+}
+
+export async function deletePost(id) {
+    const res = await client.delete(`/posts/${id}`);
+    return unwrapApiResponse(res);
+}
+
+export async function pinPost(id) {
+    const res = await client.post(`/posts/${id}/pin`);
+    return unwrapApiResponse(res);
+}
+
 export async function getPosts(params = {}) {
     const res = await client.get("/posts", { params });
     return unwrapApiResponse(res);

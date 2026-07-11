@@ -7,8 +7,10 @@ const db = require("../db/db");
 
 async function addReaction(userId, postId, type) {
     await db.query(
-        "INSERT INTO reaction (user_id, post_id, type) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE type = ?",
-        [userId, postId, type, type]
+        `INSERT INTO reaction (user_id, post_id, type)
+         VALUES (?, ?, ?)
+         ON CONFLICT (user_id, post_id) DO UPDATE SET type = EXCLUDED.type`,
+        [userId, postId, type]
     );
 }
 

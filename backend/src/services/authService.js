@@ -66,6 +66,7 @@ async function login(data) {
     // сохраняем сессию в базе данных, чтобы можно было проверять токен на сервере и отзывать его при необходимости
     // Это дает возможность отозвать токен, если пользователь вышел из системы или если токен был скомпрометирован.
     await sessionRepo.createSession(user.id, token);
+    await userRepo.updateLastLoginAt(user.id);
 
     return { token };
 }

@@ -1,94 +1,72 @@
-/*
-DB config
-- switch env (test/dev)
-*/
-
-const mysql = require("mysql2/promise");
+const { Pool, types } = require("pg");
 require("dotenv").config({
     path: process.env.NODE_ENV === "test" ? ".env.test" : ".env"
 });
 
-const fs = require("fs");
-const path = require("path");
-const { getEmailHash } = require("../utils/emailSecurity");
+const { formatValuePlaceholders } = require("./postgres/queryFormatter");
+const { normalizeRows, buildCommandResult } = require("./postgres/resultAdapter");
+const { syncSchema } = require("./postgres/schemaSync");
 
-// create pool
-const pool = mysql.createPool({
+types.setTypeParser(20, (value) => Number(value));
+types.setTypeParser(1700, (value) => Number(value));
+
+const pool = new Pool({
     host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
+    port: Number(process.env.DB_PORT),
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10
+    max: 10
 });
 
-// read and execute schema
+function shouldReturnRows(sql) {
+    return /^\s*(select|with)\b/i.test(sql);
+}
+
+async function execute(client, sql, params = []) {
+    const formattedSql = formatValuePlaceholders(sql);
+    const result = await client.query(formattedSql, params);
+
+    if (shouldReturnRows(sql)) {
+        return [normalizeRows(result.rows), result];
+    }
+
+    return [buildCommandResult(result), result];
+}
+
+async function query(sql, params = []) {
+    return execute(pool, sql, params);
+}
+
+async function getConnection() {
+    const client = await pool.connect();
+
+    return {
+        query(sql, params = []) {
+            return execute(client, sql, params);
+        },
+        beginTransaction() {
+            return client.query("BEGIN");
+        },
+        commit() {
+            return client.query("COMMIT");
+        },
+        rollback() {
+            return client.query("ROLLBACK");
+        },
+        release() {
+            client.release();
+        }
+    };
+}
+
 async function createSchema() {
-    const schemaPath = path.join(__dirname, "../../../database/schema.sql");
-    const schema = fs.readFileSync(schemaPath, "utf8");
-
-    const statements = schema
-        .split(";")
-        .map(stmt => stmt.trim())
-        .filter(stmt => stmt.length > 0)
-        .filter(stmt => !/^DROP TABLE IF EXISTS/i.test(stmt));
-
-    for (const statement of statements) {
-        try {
-            await pool.query(statement);
-        } catch (err) {
-            if (err && (err.code === "ER_TABLE_EXISTS_ERROR" || err.code === "ER_DUP_ENTRY")) {
-                continue;
-            }
-
-            throw err;
-        }
-    }
-
-    await ensureHashedEmails();
+    return syncSchema(pool);
 }
 
-async function ensureHashedEmails() {
-    const [emailColumns] = await pool.query("SHOW COLUMNS FROM users LIKE 'email'");
-    const [emailHashColumns] = await pool.query("SHOW COLUMNS FROM users LIKE 'email_hash'");
-
-    if (emailColumns.length === 0 && emailHashColumns.length === 0) {
-        return;
-    }
-
-    if (emailHashColumns.length === 0) {
-        await pool.query("ALTER TABLE users ADD COLUMN email_hash VARCHAR(255) NULL UNIQUE AFTER username");
-    }
-
-    const selectFields = emailColumns.length > 0
-        ? "id, email, email_hash"
-        : "id, email_hash";
-    const [rows] = await pool.query(`SELECT ${selectFields} FROM users`);
-
-    for (const row of rows) {
-        const sourceValue = row.email || row.email_hash;
-        const nextHash = sourceValue ? getEmailHash(sourceValue) : null;
-
-        if (!nextHash) {
-            continue;
-        }
-
-        if (emailColumns.length > 0) {
-            await pool.query(
-                "UPDATE users SET email_hash = ?, email = ? WHERE id = ?",
-                [nextHash, nextHash, row.id]
-            );
-        } else if (!row.email_hash) {
-            await pool.query(
-                "UPDATE users SET email_hash = ? WHERE id = ?",
-                [nextHash, row.id]
-            );
-        }
-    }
-
-    await pool.query("ALTER TABLE users MODIFY email_hash VARCHAR(255) NOT NULL");
-}
-
-module.exports = pool;
-module.exports.createSchema = createSchema;
+module.exports = {
+    query,
+    getConnection,
+    createSchema,
+    end: () => pool.end()
+};

@@ -9,11 +9,23 @@ const db = require("../db/db");
 
 async function createPost(authorId, title, description, previewUrl = null) {
     const [res] = await db.query(
-        "INSERT INTO post (author_id, title, description, preview_url, status) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO post (author_id, title, description, preview_url, status) VALUES (?, ?, ?, ?, ?) RETURNING id",
         [authorId, title, description, previewUrl, "published"]
     );
 
     return res.insertId;
+}
+
+async function clearPinnedForAuthor(authorId, exceptPostId = null) {
+    const params = [authorId];
+    let query = "UPDATE post SET is_pinned = 0 WHERE author_id = ?";
+
+    if (exceptPostId) {
+        query += " AND id <> ?";
+        params.push(exceptPostId);
+    }
+
+    await db.query(query, params);
 }
 
 async function updatePost(postId, authorId, title, description, previewUrl = null) {
@@ -81,18 +93,23 @@ async function syncTags(postId, tags) {
             continue;
         }
 
-        await db.query(
-            "INSERT INTO tag (name) VALUES (?) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)",
+        const [insertedTags] = await db.query(
+            "INSERT INTO tag (name) VALUES (?) ON CONFLICT (name) DO NOTHING RETURNING id",
             [normalizedTag]
         );
 
-        const [[tag]] = await db.query(
-            "SELECT id FROM tag WHERE name = ?",
-            [normalizedTag]
-        );
+        let tag = insertedTags[0];
+
+        if (!tag) {
+            const [existingTags] = await db.query(
+                "SELECT id FROM tag WHERE name = ?",
+                [normalizedTag]
+            );
+            tag = existingTags[0];
+        }
 
         await db.query(
-            "INSERT IGNORE INTO post_tag (post_id, tag_id) VALUES (?, ?)",
+            "INSERT INTO post_tag (post_id, tag_id) VALUES (?, ?) ON CONFLICT (post_id, tag_id) DO NOTHING",
             [postId, tag.id]
         );
     }
@@ -191,15 +208,48 @@ async function getPostTagMap(postIds) {
     return map;
 }
 
-async function listPosts(limit = 20, authorId = null, tag = null, includeTags = [], excludeTags = [], authorQuery = null) {
+function buildPostOrder(sort) {
+    if (sort === "popular") {
+        return "ORDER BY p.is_pinned DESC, COALESCE(reaction_summary.reaction_count, 0) DESC, p.created_at DESC";
+    }
+
+    if (sort === "expensive") {
+        return "ORDER BY p.is_pinned DESC, COALESCE(pa.price, 0) DESC, p.created_at DESC";
+    }
+
+    return "ORDER BY p.is_pinned DESC, p.created_at DESC";
+}
+
+async function listPosts(
+    limit = 20,
+    offset = 0,
+    authorId = null,
+    authorQuery = null,
+    tag = null,
+    sort = "new",
+    accessType = null,
+    includeTags = [],
+    excludeTags = []
+) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
+    const safeOffset = Math.max(0, Number(offset) || 0);
     let query = `
         SELECT
             p.*,
             u.username AS author_username,
             u.display_name AS authorName,
-            u.avatar_url AS author_avatar_url
+            u.avatar_url AS author_avatar_url,
+            COALESCE(pa.access_type, 'free') AS list_access_type,
+            COALESCE(pa.price, 0) AS list_price,
+            COALESCE(reaction_summary.reaction_count, 0) AS reaction_count
         FROM post p
         INNER JOIN users u ON u.id = p.author_id
+        LEFT JOIN post_access pa ON pa.post_id = p.id
+        LEFT JOIN (
+            SELECT post_id, COUNT(*) AS reaction_count
+            FROM reaction
+            GROUP BY post_id
+        ) reaction_summary ON reaction_summary.post_id = p.id
     `;
     const params = [];
     const conditions = [];
@@ -244,12 +294,17 @@ async function listPosts(limit = 20, authorId = null, tag = null, includeTags = 
         params.push(`%${String(authorQuery).trim()}%`, `%${String(authorQuery).trim()}%`);
     }
 
+    if (accessType) {
+        conditions.push("pa.access_type = ?");
+        params.push(accessType);
+    }
+
     if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(" AND ")}`;
     }
 
-    query += " GROUP BY p.id ORDER BY p.created_at DESC LIMIT ?";
-    params.push(limit);
+    query += ` ${buildPostOrder(sort)} LIMIT ? OFFSET ?`;
+    params.push(safeLimit, safeOffset);
 
     const [rows] = await db.query(query, params);
 
@@ -357,8 +412,18 @@ async function deletePost(postId, authorId) {
     }
 }
 
+async function pinPost(postId, authorId) {
+    const [result] = await db.query(
+        "UPDATE post SET is_pinned = 1 WHERE id = ? AND author_id = ?",
+        [postId, authorId]
+    );
+
+    return result.affectedRows;
+}
+
 module.exports = {
     createPost,
+    clearPinnedForAuthor,
     updatePost,
     addContent,
     replaceContent,
@@ -374,5 +439,6 @@ module.exports = {
     listAllTags,
     getPostOwner,
     getReactionUsers,
-    deletePost
+    deletePost,
+    pinPost
 };

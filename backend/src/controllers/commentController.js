@@ -33,8 +33,21 @@ async function deleteComment(req, res) {
         fail(res, 400, err.message);
     }
 }
+async function updateComment(req, res) {
+    try {
+        const result = await commentService.updateComment(
+            req.user.userId,
+            req.params.id,
+            req.body?.content
+        );
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
 module.exports = {
     createComment,
     getComments,
-    deleteComment
+    deleteComment,
+    updateComment
 };

@@ -5,42 +5,49 @@ Init test DB
 
 const fs = require("fs");
 const path = require("path");
-const mysql = require("mysql2/promise");
+const { Client } = require("pg");
 const db = require("../db/db");
+const { splitSqlStatements } = require("../db/postgres/statementSplitter");
 
 module.exports = async function initDb() {
-    const adminConnection = await mysql.createConnection({
+    const adminConnection = new Client({
         host: process.env.DB_HOST,
-        port: process.env.DB_PORT,
+        port: Number(process.env.DB_PORT),
         user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD
+        password: process.env.DB_PASSWORD,
+        database: "postgres"
     });
 
-    await adminConnection.query(
-        `CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME}\``
+    await adminConnection.connect();
+
+    const databaseExists = await adminConnection.query(
+        "SELECT 1 FROM pg_database WHERE datname = $1",
+        [process.env.DB_NAME]
     );
+
+    if (databaseExists.rowCount === 0) {
+        await adminConnection.query(`CREATE DATABASE ${process.env.DB_NAME}`);
+    }
+
     await adminConnection.end();
 
-    const schema = fs.readFileSync(
-        path.join(__dirname, "../../../database/schema.sql"),
-        "utf-8"
-    );
+    const schemaPathCandidates = [
+        path.join(__dirname, "../../database/schema.sql"),
+        path.join(__dirname, "../../../database/schema.sql")
+    ];
+    const schemaPath = schemaPathCandidates.find((candidate) => fs.existsSync(candidate));
 
-    const queries = schema
-        .split(";")
-        .map(q => q.trim())
-        .filter(q => q.length);
+    if (!schemaPath) {
+        throw new Error("database/schema.sql not found");
+    }
 
-    await db.query("SET FOREIGN_KEY_CHECKS = 0");
+    const schema = fs.readFileSync(schemaPath, "utf-8");
 
-    try {
-        await db.query("DROP TABLE IF EXISTS users_role");
-        await db.query("DROP TABLE IF EXISTS users");
+    await db.query("DROP SCHEMA IF EXISTS public CASCADE");
+    await db.query("CREATE SCHEMA public");
+    const statements = splitSqlStatements(schema);
 
-        for (const query of queries) {
-            await db.query(query);
-        }
-    } finally {
-        await db.query("SET FOREIGN_KEY_CHECKS = 1");
+    for (const statement of statements) {
+        await db.query(statement);
     }
 };

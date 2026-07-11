@@ -9,7 +9,7 @@ const db = require("../db/db");
 
 async function createComment(postId, userId, content) {
     const [res] = await db.query(
-        "INSERT INTO comment (post_id, author_id, content) VALUES (?, ?, ?)",
+        "INSERT INTO comment (post_id, author_id, content) VALUES (?, ?, ?) RETURNING id",
         [postId, userId, content]
     );
 
@@ -36,8 +36,24 @@ async function getComments(postId) {
 
 async function deleteComment(commentId, userId) {
     const [result] = await db.query(
-        "DELETE FROM comment WHERE id = ? AND author_id = ?",
-        [commentId, userId]
+        `DELETE FROM comment
+         WHERE id = ?
+           AND EXISTS (
+               SELECT 1
+               FROM post p
+               WHERE p.id = comment.post_id
+                 AND (comment.author_id = ? OR p.author_id = ?)
+           )`,
+        [commentId, userId, userId]
+    );
+
+    return result.affectedRows;
+}
+
+async function updateComment(commentId, userId, content) {
+    const [result] = await db.query(
+        "UPDATE comment SET content = ? WHERE id = ? AND author_id = ?",
+        [content, commentId, userId]
     );
 
     return result.affectedRows;
@@ -46,5 +62,6 @@ async function deleteComment(commentId, userId) {
 module.exports = {
     createComment,
     getComments,
-    deleteComment
+    deleteComment,
+    updateComment
 };

@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getChats, waitForMessageUpdates } from "../api/message";
 import { getApiErrorMessage } from "../api/response";
+import ChatPeerStatus from "../components/ChatPeerStatus";
+import ChatSearchField from "../components/ChatSearchField";
+import EmptyState from "../components/EmptyState";
 import { resolveMediaUrl } from "../utils/media";
 
 function MessagesPage() {
     const [chats, setChats] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [query, setQuery] = useState("");
     const lastMessageIdRef = useRef(0);
 
     useEffect(() => {
@@ -79,6 +83,12 @@ function MessagesPage() {
         }
     }
 
+    const filteredChats = chats.filter((chat) =>
+        `${chat.peer.display_name || ""} ${chat.peer.username || ""}`
+            .toLowerCase()
+            .includes(query.toLowerCase())
+    );
+
     return (
         <div className="page-stack">
             <div className="page-heading">
@@ -97,12 +107,14 @@ function MessagesPage() {
                 </div>
             </div>
 
+            <ChatSearchField value={query} onChange={setQuery} />
+
             {loading && <div className="muted-box">Loading chats...</div>}
             {error && <div className="muted-box">{error}</div>}
 
             {!loading && (
                 <div className="chat-list">
-                    {chats.length > 0 && chats.map((chat) => (
+                    {filteredChats.length > 0 && filteredChats.map((chat) => (
                         <Link key={chat.peer.id} className="chat-list-item card" to={`/messages/${chat.peer.id}`}>
                             <div className="card__body chat-list-item__body">
                                 <img className="avatar avatar--md" src={resolveMediaUrl(chat.peer.avatar_url)} alt="" />
@@ -113,6 +125,7 @@ function MessagesPage() {
                                                 {chat.peer.display_name || chat.peer.username}
                                             </div>
                                             <div className="user-card__meta">@{chat.peer.username}</div>
+                                            <ChatPeerStatus userId={chat.peer.id} />
                                         </div>
                                         {chat.unread_count > 0 && (
                                             <span className="chat-badge">{chat.unread_count}</span>
@@ -126,10 +139,12 @@ function MessagesPage() {
                         </Link>
                     ))}
 
-                    {chats.length === 0 && (
-                        <div className="muted-box">
-                            No chats yet. Start with someone you already follow.
-                        </div>
+                    {filteredChats.length === 0 && (
+                        <EmptyState>
+                            {chats.length === 0
+                                ? "No chats yet. Start with someone you already follow."
+                                : "No chats match the current search."}
+                        </EmptyState>
                     )}
                 </div>
             )}

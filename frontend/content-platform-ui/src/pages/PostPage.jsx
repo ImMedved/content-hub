@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { getPost } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import PostCard from "../components/PostCard";
+import { useToast } from "../context/useToast";
 import { normalizePostDetail } from "../utils/post";
 
 function PostPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
+    const { showToast } = useToast();
     const [post, setPost] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const successShownRef = useRef("");
 
     const loadPost = useCallback(async () => {
         setLoading(true);
@@ -42,6 +45,13 @@ function PostPage() {
         initialLoad();
     }, [id, loadPost]);
 
+    useEffect(() => {
+        if (location.state?.success && successShownRef.current !== location.state.success) {
+            successShownRef.current = location.state.success;
+            showToast(location.state.success, "success");
+        }
+    }, [location.state, showToast]);
+
     function handleBack() {
         if (location.state?.from) {
             navigate(location.state.from, {
@@ -64,8 +74,16 @@ function PostPage() {
                     post={post}
                     showOpenButton={false}
                     showBackButton
+                    showManagementActions
                     onBack={handleBack}
                     onPurchased={loadPost}
+                    onPostPinned={loadPost}
+                    onPostDeleted={() => {
+                        navigate("/users/me", {
+                            replace: true,
+                            state: { success: "Post deleted" }
+                        });
+                    }}
                 />
             )}
         </div>

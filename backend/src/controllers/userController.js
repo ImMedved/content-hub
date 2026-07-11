@@ -87,6 +87,24 @@ async function getFollowers(req, res) {
     }
 }
 
+async function getUserStatus(req, res) {
+    try {
+        const user = await userRepo.findById(req.params.id);
+
+        if (!user) {
+            ok(res, { online: false });
+            return;
+        }
+
+        const lastLoginAt = user.last_login_at ? new Date(user.last_login_at).getTime() : 0;
+        ok(res, {
+            online: Boolean(lastLoginAt && Date.now() - lastLoginAt < 5 * 60 * 1000)
+        });
+    } catch (err) {
+        fail(res, 500, err.message);
+    }
+}
+
 module.exports = {
     getMe,
     updateMe,
@@ -94,5 +112,6 @@ module.exports = {
     getMyFollowing,
     getMyFollowers,
     getFollowing,
-    getFollowers
+    getFollowers,
+    getUserStatus
 };

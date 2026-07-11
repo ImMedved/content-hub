@@ -1,73 +1,57 @@
-/*
-Post card
-*/
-
-import { Link, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
-import CommentItem from "./CommentItem";
-import { createComment, getComments } from "../api/comments";
+import { Link, useLocation } from "react-router-dom";
+import { deletePost, getPost, pinPost, purchasePost } from "../api/post";
 import { addReaction, getReactionUsers, getReactions, removeReaction } from "../api/reactions";
-import { getPost, purchasePost } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
+import { useToast } from "../context/useToast";
 import { useAuth } from "../context/auth-context";
 import { resolveMediaUrl } from "../utils/media";
 import { normalizePostDetail } from "../utils/post";
+import CommentThread from "./CommentThread";
+import PostTagList from "./PostTagList";
 
 function PostCard({
     post,
     showOpenButton = true,
     showBackButton = false,
+    showManagementActions = false,
     onBack = null,
     onPurchased = null,
-    onTagClick = null,
+    onPostDeleted = null,
+    onPostPinned = null,
+    onTagApply = null,
     compact = false
 }) {
     const { user, refreshUser } = useAuth();
+    const { showToast } = useToast();
     const location = useLocation();
     const [postOverride, setPostOverride] = useState(null);
-    const [comments, setComments] = useState([]);
-    const [text, setText] = useState("");
     const [reactions, setReactions] = useState([]);
     const [reactionUsers, setReactionUsers] = useState([]);
-    const [commentLoading, setCommentLoading] = useState(false);
     const [reactionLoading, setReactionLoading] = useState(false);
     const [purchaseLoading, setPurchaseLoading] = useState(false);
+    const [managementLoading, setManagementLoading] = useState(false);
     const [likersLoading, setLikersLoading] = useState(false);
-    const [commentError, setCommentError] = useState("");
     const [reactionError, setReactionError] = useState("");
     const [purchaseError, setPurchaseError] = useState("");
-    const [hasReacted, setHasReacted] = useState(false);
     const [showLikers, setShowLikers] = useState(false);
 
     const currentPost = postOverride?.id === post?.id ? postOverride : post;
     const postId = currentPost?.id ?? null;
     const isAuthor = Number(user?.id) === Number(currentPost?.author_id);
+    const canManagePost = showManagementActions && isAuthor;
     const isLocked = Boolean(currentPost?.is_locked);
     const canViewContent = Boolean(currentPost?.can_view_content);
-    const isBought =
-        currentPost?.access_type === "paid" &&
-        canViewContent &&
-        !isAuthor;
+    const isBought = currentPost?.access_type === "paid" && canViewContent && !isAuthor;
     const postLinkState = {
         from: location.pathname + location.search,
         scrollY: window.scrollY
     };
 
-    const loadComments = useCallback(async () => {
-        try {
-            const res = await getComments(postId);
-            setComments(Array.isArray(res) ? res : []);
-            setCommentError("");
-        } catch (err) {
-            setCommentError(getApiErrorMessage(err));
-            setComments([]);
-        }
-    }, [postId]);
-
     const loadReactions = useCallback(async () => {
         try {
-            const res = await getReactions(postId);
-            setReactions(Array.isArray(res) ? res : []);
+            const response = await getReactions(postId);
+            setReactions(Array.isArray(response) ? response : []);
             setReactionError("");
         } catch (err) {
             setReactionError(getApiErrorMessage(err));
@@ -95,30 +79,21 @@ function PostCard({
             return;
         }
 
-        async function syncPostMeta() {
-            await Promise.all([loadComments(), loadReactions()]);
-        }
+        const timeoutId = setTimeout(() => {
+            loadReactions();
+        }, 0);
 
-        syncPostMeta();
-    }, [postId, isLocked, loadComments, loadReactions]);
+        return () => clearTimeout(timeoutId);
+    }, [postId, isLocked, loadReactions]);
 
-    async function handleComment() {
-        setCommentLoading(true);
-        setCommentError("");
+    async function handleCopyPostLink() {
+        await navigator.clipboard.writeText(`${window.location.origin}/posts/${currentPost.id}`);
+        showToast("Post link copied", "success");
+    }
 
-        try {
-            await createComment({
-                postId: currentPost.id,
-                content: text.trim()
-            });
-
-            setText("");
-            await loadComments();
-        } catch (err) {
-            setCommentError(getApiErrorMessage(err));
-        } finally {
-            setCommentLoading(false);
-        }
+    async function handleCopyTag(tag) {
+        await navigator.clipboard.writeText(`#${tag}`);
+        showToast("Tag copied", "success");
     }
 
     async function handleLike() {
@@ -127,8 +102,8 @@ function PostCard({
 
         try {
             await addReaction(currentPost.id);
-            setHasReacted(true);
             await loadReactions();
+
             if (showLikers) {
                 await loadReactionUsers();
             }
@@ -145,8 +120,8 @@ function PostCard({
 
         try {
             await removeReaction(currentPost.id);
-            setHasReacted(false);
             await loadReactions();
+
             if (showLikers) {
                 await loadReactionUsers();
             }
@@ -170,9 +145,12 @@ function PostCard({
             }
 
             await refreshUser();
+
             if (typeof onPurchased === "function") {
                 await onPurchased(refreshed || currentPost);
             }
+
+            showToast("Post purchased", "success");
         } catch (err) {
             setPurchaseError(getApiErrorMessage(err));
         } finally {
@@ -186,6 +164,52 @@ function PostCard({
 
         if (nextState) {
             await loadReactionUsers();
+        }
+    }
+
+    async function handleDeletePost() {
+        const isConfirmed = window.confirm("Delete this post?");
+
+        if (!isConfirmed) {
+            return;
+        }
+
+        setManagementLoading(true);
+        setPurchaseError("");
+
+        try {
+            await deletePost(currentPost.id);
+            showToast("Post deleted", "success");
+
+            if (typeof onPostDeleted === "function") {
+                await onPostDeleted(currentPost);
+            }
+        } catch (err) {
+            setPurchaseError(getApiErrorMessage(err));
+        } finally {
+            setManagementLoading(false);
+        }
+    }
+
+    async function handlePinPost() {
+        setManagementLoading(true);
+        setPurchaseError("");
+
+        try {
+            await pinPost(currentPost.id);
+            setPostOverride((current) => ({
+                ...(current || currentPost),
+                is_pinned: true
+            }));
+            showToast("Post pinned", "success");
+
+            if (typeof onPostPinned === "function") {
+                await onPostPinned(currentPost);
+            }
+        } catch (err) {
+            setPurchaseError(getApiErrorMessage(err));
+        } finally {
+            setManagementLoading(false);
         }
     }
 
@@ -222,7 +246,7 @@ function PostCard({
         <article className={`card post-card${compact ? " post-card--compact" : ""}`}>
             {showBackButton && onBack && (
                 <div className="post-card__toolbar">
-                    <button className="btn btn--secondary" onClick={onBack}>
+                    <button className="btn btn--secondary" type="button" onClick={onBack}>
                         Back to feed
                     </button>
                 </div>
@@ -245,7 +269,12 @@ function PostCard({
                                     </Link>
                                 </h2>
 
-                                {isBought && <span className="post-card__status-badge">Bought</span>}
+                                {currentPost.is_pinned && (
+                                    <span className="post-card__status-badge">Pinned</span>
+                                )}
+                                {isBought && (
+                                    <span className="post-card__status-badge">Bought</span>
+                                )}
                             </div>
 
                             {currentPost.author_id && (
@@ -265,20 +294,11 @@ function PostCard({
                     )}
                 </div>
 
-                {Array.isArray(currentPost.tags) && currentPost.tags.length > 0 && (
-                    <div className="tag-row">
-                        {currentPost.tags.map((tag) => (
-                            <button
-                                key={tag}
-                                className="tag-chip"
-                                onClick={() => onTagClick && onTagClick(tag)}
-                                disabled={!onTagClick}
-                            >
-                                #{tag}
-                            </button>
-                        ))}
-                    </div>
-                )}
+                <PostTagList
+                    tags={currentPost.tags}
+                    onApplyTag={onTagApply}
+                    onCopyTag={handleCopyTag}
+                />
             </div>
 
             <div className="post-card__content">
@@ -304,6 +324,7 @@ function PostCard({
                     <>
                         <button
                             className="btn btn--secondary"
+                            type="button"
                             onClick={handleLike}
                             disabled={reactionLoading || !currentPost?.id}
                         >
@@ -312,8 +333,9 @@ function PostCard({
 
                         <button
                             className="btn btn--secondary"
+                            type="button"
                             onClick={handleRemoveReaction}
-                            disabled={reactionLoading || !currentPost?.id || !hasReacted}
+                            disabled={reactionLoading || !currentPost?.id}
                         >
                             Remove reaction
                         </button>
@@ -321,6 +343,7 @@ function PostCard({
                 ) : (
                     <button
                         className="btn btn--primary"
+                        type="button"
                         onClick={handlePurchase}
                         disabled={purchaseLoading}
                     >
@@ -334,8 +357,36 @@ function PostCard({
                     </Link>
                 )}
 
+                <button className="btn btn--secondary" type="button" onClick={handleCopyPostLink}>
+                    Copy link
+                </button>
+
+                {canManagePost && (
+                    <>
+                        <button
+                            className="btn btn--secondary"
+                            type="button"
+                            onClick={handlePinPost}
+                            disabled={managementLoading || Boolean(currentPost.is_pinned)}
+                        >
+                            {currentPost.is_pinned ? "Pinned" : "Pin post"}
+                        </button>
+                        <Link className="btn btn--secondary" to={`/posts/${currentPost.id}/edit`}>
+                            Edit post
+                        </Link>
+                        <button
+                            className="btn btn--danger"
+                            type="button"
+                            onClick={handleDeletePost}
+                            disabled={managementLoading}
+                        >
+                            Delete post
+                        </button>
+                    </>
+                )}
+
                 {isAuthor && canViewContent && (
-                    <button className="btn btn--secondary" onClick={handleToggleLikers}>
+                    <button className="btn btn--secondary" type="button" onClick={handleToggleLikers}>
                         {showLikers ? "Hide likers" : "View likers"}
                     </button>
                 )}
@@ -385,122 +436,11 @@ function PostCard({
             )}
 
             {canViewContent && !compact && (
-                <div className="post-card__comments">
-                    <h3 className="comments-title">Comments</h3>
-
-                    {comments.length > 0 ? (
-                        <div className="comment-list">
-                            {comments.map((comment) => (
-                                <CommentItem
-                                    key={comment.id}
-                                    comment={comment}
-                                    actions={null}
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="muted-box">No comments yet.</div>
-                    )}
-
-                    {/*
-                    Ready-to-enable comment moderation controls.
-                    Backend and API hooks already exist:
-                    - PUT /api/v1/comments/:id
-                    - DELETE /api/v1/comments/:id
-                    Deletion now supports both:
-                    - the comment author
-                    - the post author
-                    Uncomment the state/handlers below together with the actions block if you want to expose it.
-
-                    const [editingCommentId, setEditingCommentId] = useState(null);
-                    const [editingCommentText, setEditingCommentText] = useState("");
-
-                    async function handleDeleteComment(commentId) {
-                        setCommentLoading(true);
-                        setCommentError("");
-
-                        try {
-                            await deleteComment(commentId);
-                            await loadComments();
-                        } catch (err) {
-                            setCommentError(getApiErrorMessage(err));
-                        } finally {
-                            setCommentLoading(false);
-                        }
-                    }
-
-                    async function handleSaveCommentEdit(commentId) {
-                        setCommentLoading(true);
-                        setCommentError("");
-
-                        try {
-                            await updateComment(commentId, editingCommentText);
-                            setEditingCommentId(null);
-                            setEditingCommentText("");
-                            await loadComments();
-                        } catch (err) {
-                            setCommentError(getApiErrorMessage(err));
-                        } finally {
-                            setCommentLoading(false);
-                        }
-                    }
-
-                    const canDeleteComment =
-                        Number(user?.id) === Number(comment.author_id) ||
-                        Number(user?.id) === Number(currentPost?.author_id);
-
-                    const canEditComment = Number(user?.id) === Number(comment.author_id);
-
-                    actions={
-                        <div className="comment-item__actions">
-                            {canEditComment && (
-                                <button
-                                    className="btn btn--secondary"
-                                    type="button"
-                                    onClick={() => {
-                                        setEditingCommentId(comment.id);
-                                        setEditingCommentText(comment.content || "");
-                                    }}
-                                >
-                                    Edit
-                                </button>
-                            )}
-                            {canDeleteComment && (
-                                <button
-                                    className="btn btn--danger"
-                                    type="button"
-                                    onClick={() => handleDeleteComment(comment.id)}
-                                    disabled={commentLoading}
-                                >
-                                    Delete
-                                </button>
-                            )}
-                        </div>
-                    }
-                    */}
-
-                    {commentError && <div className="muted-box">{commentError}</div>}
-
-                    <div className="comment-form">
-                        <div className="comment-form__row">
-                            <textarea
-                                className="field__textarea"
-                                value={text}
-                                onChange={(e) => setText(e.target.value)}
-                                disabled={commentLoading || !currentPost?.id}
-                                placeholder="Write a comment"
-                            />
-                        </div>
-
-                        <button
-                            className="btn btn--primary"
-                            onClick={handleComment}
-                            disabled={commentLoading || !text.trim() || !currentPost?.id}
-                        >
-                            {commentLoading ? "Saving..." : "Add comment"}
-                        </button>
-                    </div>
-                </div>
+                <CommentThread
+                    postId={currentPost.id}
+                    postAuthorId={currentPost.author_id}
+                    currentUserId={user?.id}
+                />
             )}
         </article>
     );

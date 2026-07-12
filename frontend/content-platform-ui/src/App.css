@@ -503,6 +503,20 @@ select:focus-visible {
     overflow: hidden;
 }
 
+.post-card--scroll-reveal {
+    opacity: 0;
+    transform: translate3d(0, 28px, 0);
+    transition:
+        opacity 220ms ease-out,
+        transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+}
+
+.post-card--scroll-reveal.post-card--is-visible {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+}
+
 .post-card--compact {
     display: flex;
     flex-direction: column;
@@ -671,6 +685,14 @@ select:focus-visible {
 
 .post-card__locked-comments-note {
     margin-bottom: 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .post-card--scroll-reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
 }
 
 .comments-title {

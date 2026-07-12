@@ -443,6 +443,7 @@ function FeedPage() {
                         post={post}
                         onTagApply={handleApplyTag}
                         compact={mode === "all"}
+                        animateOnScroll
                     />
                 ))}
             </div>

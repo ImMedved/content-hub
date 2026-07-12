@@ -7,6 +7,7 @@ import { useToast } from "../context/useToast";
 import { useAuth } from "../context/auth-context";
 import { resolveMediaUrl } from "../utils/media";
 import { normalizePostDetail } from "../utils/post";
+import useRevealOnScroll from "../utils/useRevealOnScroll";
 import CommentThread from "./CommentThread";
 import PostTagList from "./PostTagList";
 
@@ -20,7 +21,8 @@ function PostCard({
     onPostDeleted = null,
     onPostPinned = null,
     onTagApply = null,
-    compact = false
+    compact = false,
+    animateOnScroll = false
 }) {
     const { user, refreshUser } = useAuth();
     const { showToast } = useToast();
@@ -35,6 +37,7 @@ function PostCard({
     const [reactionError, setReactionError] = useState("");
     const [purchaseError, setPurchaseError] = useState("");
     const [showLikers, setShowLikers] = useState(false);
+    const { elementRef, isVisible } = useRevealOnScroll(animateOnScroll);
 
     const currentPost = postOverride?.id === post?.id ? postOverride : post;
     const postId = currentPost?.id ?? null;
@@ -243,7 +246,14 @@ function PostCard({
     }
 
     return (
-        <article className={`card post-card${compact ? " post-card--compact" : ""}`}>
+        <article
+            ref={elementRef}
+            className={
+                `card post-card${compact ? " post-card--compact" : ""}` +
+                `${animateOnScroll ? " post-card--scroll-reveal" : ""}` +
+                `${animateOnScroll && isVisible ? " post-card--is-visible" : ""}`
+            }
+        >
             {showBackButton && onBack && (
                 <div className="post-card__toolbar">
                     <button className="btn btn--secondary" type="button" onClick={onBack}>

@@ -229,6 +229,7 @@ function ProfilePage() {
                                 showManagementActions={isOwnProfile}
                                 onPostDeleted={loadProfile}
                                 onPostPinned={loadProfile}
+                                animateOnScroll
                             />
                         ))}
                     </section>

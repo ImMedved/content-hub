@@ -16,6 +16,153 @@ async function createPost(authorId, title, description, previewUrl = null) {
     return res.insertId;
 }
 
+async function createImagePost(authorId, imageData) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [res] = await connection.query(
+            `INSERT INTO post (author_id, post_kind, title, description, preview_url, status)
+             VALUES (?, 'image', ?, ?, ?, ?) RETURNING id`,
+            [
+                authorId,
+                imageData.title,
+                imageData.description || "",
+                imageData.feedThumbnailUrl || imageData.thumbnailUrl || null,
+                "published"
+            ]
+        );
+        const postId = res.insertId;
+
+        await connection.query(
+            `INSERT INTO post_content (post_id, content_type, content_url, text_content)
+             VALUES (?, 'image', ?, NULL)`,
+            [postId, imageData.compressedUrl || null]
+        );
+
+        await connection.query(
+            `INSERT INTO image_asset (
+                post_id,
+                owner_id,
+                original_url,
+                compressed_url,
+                thumbnail_url,
+                feed_thumbnail_url,
+                original_storage_key,
+                compressed_storage_key,
+                thumbnail_storage_key,
+                feed_thumbnail_storage_key,
+                processing_status,
+                analysis_status,
+                analysis_payload,
+                ocr_text,
+                caption
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?)`,
+            [
+                postId,
+                authorId,
+                imageData.originalUrl,
+                imageData.compressedUrl || null,
+                imageData.thumbnailUrl || null,
+                imageData.feedThumbnailUrl || null,
+                imageData.originalStorageKey || null,
+                imageData.compressedStorageKey || null,
+                imageData.thumbnailStorageKey || null,
+                imageData.feedThumbnailStorageKey || null,
+                imageData.processingStatus || "queued",
+                imageData.analysisStatus || "pending",
+                imageData.analysisPayload ? JSON.stringify(imageData.analysisPayload) : null,
+                imageData.ocrText || null,
+                imageData.caption || null
+            ]
+        );
+
+        await connection.query(
+            "INSERT INTO post_access (post_id, access_type, price) VALUES (?, 'free', 0)",
+            [postId]
+        );
+
+        await connection.commit();
+        return postId;
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
+async function getImageAssetByPostId(postId) {
+    const [[row]] = await db.query(
+        "SELECT * FROM image_asset WHERE post_id = ?",
+        [postId]
+    );
+
+    return row || null;
+}
+
+async function updateImageAssetProcessing(postId, data) {
+    const fields = [];
+    const values = [];
+
+    for (const [column, value] of Object.entries(data)) {
+        if (typeof value === "undefined") {
+            continue;
+        }
+
+        if (column === "analysis_payload") {
+            fields.push(`${column} = ?::jsonb`);
+            values.push(value ? JSON.stringify(value) : null);
+        } else {
+            fields.push(`${column} = ?`);
+            values.push(value);
+        }
+    }
+
+    if (fields.length === 0) {
+        return 0;
+    }
+
+    values.push(postId);
+
+    const [result] = await db.query(
+        `UPDATE image_asset SET ${fields.join(", ")} WHERE post_id = ?`,
+        values
+    );
+
+    return result.affectedRows;
+}
+
+async function updateImagePostMedia(postId, { contentUrl, previewUrl }) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        if (previewUrl) {
+            await connection.query(
+                "UPDATE post SET preview_url = ? WHERE id = ?",
+                [previewUrl, postId]
+            );
+        }
+
+        if (contentUrl) {
+            await connection.query(
+                "UPDATE post_content SET content_url = ? WHERE post_id = ? AND content_type = 'image'",
+                [contentUrl, postId]
+            );
+        }
+
+        await connection.commit();
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
 async function clearPinnedForAuthor(authorId, exceptPostId = null) {
     const params = [authorId];
     let query = "UPDATE post SET is_pinned = 0 WHERE author_id = ?";
@@ -181,6 +328,22 @@ async function getPostContentMap(postIds) {
     return map;
 }
 
+async function getImageAssetMap(postIds) {
+    if (!Array.isArray(postIds) || postIds.length === 0) {
+        return new Map();
+    }
+
+    const placeholders = postIds.map(() => "?").join(", ");
+    const [rows] = await db.query(
+        `SELECT *
+         FROM image_asset
+         WHERE post_id IN (${placeholders})`,
+        postIds
+    );
+
+    return new Map(rows.map((row) => [Number(row.post_id), row]));
+}
+
 async function getPostTagMap(postIds) {
     if (!Array.isArray(postIds) || postIds.length === 0) {
         return new Map();
@@ -229,7 +392,9 @@ async function listPosts(
     sort = "new",
     accessType = null,
     includeTags = [],
-    excludeTags = []
+    excludeTags = [],
+    postKind = null,
+    followedByUserId = null
 ) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
     const safeOffset = Math.max(0, Number(offset) || 0);
@@ -299,6 +464,22 @@ async function listPosts(
         params.push(accessType);
     }
 
+    if (postKind) {
+        conditions.push("p.post_kind = ?");
+        params.push(postKind);
+    }
+
+    if (followedByUserId) {
+        conditions.push(`(
+            p.author_id = ? OR EXISTS (
+                SELECT 1
+                FROM follow f
+                WHERE f.following_id = p.author_id AND f.follower_id = ?
+            )
+        )`);
+        params.push(followedByUserId, followedByUserId);
+    }
+
     if (conditions.length > 0) {
         query += ` WHERE ${conditions.join(" AND ")}`;
     }
@@ -309,6 +490,56 @@ async function listPosts(
     const [rows] = await db.query(query, params);
 
     return rows;
+}
+
+async function getReactionCountMap(postIds) {
+    if (!Array.isArray(postIds) || postIds.length === 0) {
+        return new Map();
+    }
+
+    const placeholders = postIds.map(() => "?").join(", ");
+    const [rows] = await db.query(
+        `SELECT post_id, COUNT(*) AS count
+         FROM reaction
+         WHERE post_id IN (${placeholders})
+         GROUP BY post_id`,
+        postIds
+    );
+
+    return new Map(rows.map((row) => [Number(row.post_id), Number(row.count || 0)]));
+}
+
+async function getCommentCountMap(postIds) {
+    if (!Array.isArray(postIds) || postIds.length === 0) {
+        return new Map();
+    }
+
+    const placeholders = postIds.map(() => "?").join(", ");
+    const [rows] = await db.query(
+        `SELECT post_id, COUNT(*) AS count
+         FROM comment
+         WHERE post_id IN (${placeholders})
+         GROUP BY post_id`,
+        postIds
+    );
+
+    return new Map(rows.map((row) => [Number(row.post_id), Number(row.count || 0)]));
+}
+
+async function listImages({ limit = 40, offset = 0, authorId = null, followedByUserId = null } = {}) {
+    return listPosts(
+        limit,
+        offset,
+        authorId,
+        null,
+        null,
+        "new",
+        null,
+        [],
+        [],
+        "image",
+        followedByUserId
+    );
 }
 
 async function listTags(query = "", limit = 8) {
@@ -423,6 +654,10 @@ async function pinPost(postId, authorId) {
 
 module.exports = {
     createPost,
+    createImagePost,
+    getImageAssetByPostId,
+    updateImageAssetProcessing,
+    updateImagePostMedia,
     clearPinnedForAuthor,
     updatePost,
     addContent,
@@ -433,8 +668,12 @@ module.exports = {
     getPostById,
     getPostAccessMap,
     getPostContentMap,
+    getImageAssetMap,
     getPostTagMap,
+    getReactionCountMap,
+    getCommentCountMap,
     listPosts,
+    listImages,
     listTags,
     listAllTags,
     getPostOwner,

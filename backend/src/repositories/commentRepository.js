@@ -50,6 +50,24 @@ async function deleteComment(commentId, userId) {
     return result.affectedRows;
 }
 
+async function getCommentById(commentId) {
+    const [[row]] = await db.query(
+        "SELECT id, post_id, author_id FROM comment WHERE id = ?",
+        [commentId]
+    );
+
+    return row || null;
+}
+
+async function countComments(postId) {
+    const [[row]] = await db.query(
+        "SELECT COUNT(*) AS count FROM comment WHERE post_id = ?",
+        [postId]
+    );
+
+    return Number(row?.count || 0);
+}
+
 async function updateComment(commentId, userId, content) {
     const [result] = await db.query(
         "UPDATE comment SET content = ? WHERE id = ? AND author_id = ?",
@@ -62,6 +80,8 @@ async function updateComment(commentId, userId, content) {
 module.exports = {
     createComment,
     getComments,
+    getCommentById,
+    countComments,
     deleteComment,
     updateComment
 };

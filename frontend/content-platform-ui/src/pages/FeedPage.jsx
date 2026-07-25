@@ -372,6 +372,15 @@ function FeedPage() {
 
             {location.state?.success && <EmptyState>{location.state.success}</EmptyState>}
 
+            <div className="feed-content-tabs">
+                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/">
+                    Posts
+                </Link>
+                <Link className="feed-content-tabs__item" to="/images">
+                    Images
+                </Link>
+            </div>
+
             <div className="feed-toolbar card">
                 <div className="card__body feed-toolbar__body">
                     <label className="field">

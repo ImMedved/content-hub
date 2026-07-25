@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { followUser, unfollowUser } from "../api/follow";
+import { createImages, getImages } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import {
     getMyFollowing,
@@ -10,15 +11,23 @@ import {
     getUserProfile
 } from "../api/user";
 import EmptyState from "../components/EmptyState";
+import ImageGrid from "../components/ImageGrid";
+import ImageUploadModal from "../components/ImageUploadModal";
 import PostCard from "../components/PostCard";
 import { useAuth } from "../context/auth-context";
+import { useToast } from "../context/useToast";
 import { resolveMediaUrl } from "../utils/media";
 
 function ProfilePage() {
     const { id = "me" } = useParams();
     const { user: currentUser } = useAuth();
+    const { showToast } = useToast();
+    const fileInputRef = useRef(null);
     const [profile, setProfile] = useState(null);
     const [posts, setPosts] = useState([]);
+    const [images, setImages] = useState([]);
+    const [selectedUploadFiles, setSelectedUploadFiles] = useState([]);
+    const [uploadingImages, setUploadingImages] = useState(false);
     const [followers, setFollowers] = useState([]);
     const [following, setFollowing] = useState([]);
     const [myFollowingIds, setMyFollowingIds] = useState([]);
@@ -47,9 +56,14 @@ function ProfilePage() {
                 getUserFollowing(profileData.id),
                 getMyFollowing()
             ]);
+            const imageData = await getImages({
+                authorId: profileData.id,
+                limit: 4
+            });
 
             setProfile(profileData);
             setPosts(Array.isArray(profileResponse?.posts) ? profileResponse.posts : []);
+            setImages(Array.isArray(imageData) ? imageData : []);
             setFollowers(Array.isArray(followersData) ? followersData : []);
             setFollowing(Array.isArray(followingData) ? followingData : []);
             setMyFollowingIds(Array.isArray(myFollowingData) ? myFollowingData.map((item) => item.id) : []);
@@ -57,6 +71,7 @@ function ProfilePage() {
             setError(getApiErrorMessage(err));
             setProfile(null);
             setPosts([]);
+            setImages([]);
             setFollowers([]);
             setFollowing([]);
         } finally {
@@ -102,7 +117,48 @@ function ProfilePage() {
         }
     }
 
-        const isOwnProfile = profile?.id === currentUser?.id || id === "me";
+    function handlePickImages() {
+        fileInputRef.current?.click();
+    }
+
+    function handleImageFileChange(event) {
+        const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/"));
+        event.target.value = "";
+
+        if (files.length > 0) {
+            setSelectedUploadFiles(files);
+        }
+    }
+
+    async function uploadImages(uploadItems) {
+        await createImages({ images: uploadItems });
+        await loadProfile();
+        showToast("Images uploaded", "success");
+    }
+
+    async function handleSubmitImages(uploadItems, options = {}) {
+        setError("");
+
+        if (options.background) {
+            showToast("Image upload started", "success");
+            uploadImages(uploadItems).catch((err) => {
+                setError(getApiErrorMessage(err));
+            });
+            return;
+        }
+
+        setUploadingImages(true);
+
+        try {
+            await uploadImages(uploadItems);
+        } catch (err) {
+            setError(getApiErrorMessage(err));
+        } finally {
+            setUploadingImages(false);
+        }
+    }
+
+    const isOwnProfile = profile?.id === currentUser?.id || id === "me";
     const isFollowingProfile = profile ? myFollowingIds.includes(profile.id) : false;
 
     return (
@@ -123,6 +179,17 @@ function ProfilePage() {
                         <Link className="btn btn--primary" to="/create">
                             Create post
                         </Link>
+                        <button className="btn btn--secondary" type="button" onClick={handlePickImages}>
+                            Upload image
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            className="visually-hidden"
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handleImageFileChange}
+                        />
                     </div>
                 )}
             </div>
@@ -214,6 +281,19 @@ function ProfilePage() {
                         </section>
                     </div>
 
+                    <section className="section-stack">
+                        <div className="profile-panel__header">
+                            <Link className="page-title page-title--section" to={`/users/${profile.id}/images`}>
+                                Images
+                            </Link>
+                        </div>
+                        <ImageGrid
+                            images={images}
+                            limit={4}
+                            emptyText={isOwnProfile ? "No images yet. Upload one from your profile actions." : "No images yet."}
+                        />
+                    </section>
+
                     <section className="post-list">
                         <h3 className="page-title page-title--section">User posts</h3>
                         {posts.length === 0 && (
@@ -234,6 +314,15 @@ function ProfilePage() {
                         ))}
                     </section>
                 </div>
+            )}
+
+            {selectedUploadFiles.length > 0 && (
+                <ImageUploadModal
+                    files={selectedUploadFiles}
+                    onClose={() => setSelectedUploadFiles([])}
+                    onSubmit={handleSubmitImages}
+                    submitting={uploadingImages}
+                />
             )}
         </div>
     );

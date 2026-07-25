@@ -1,0 +1,19 @@
+{
+  "name": "content-hub-compress",
+  "version": "1.0.0",
+  "description": "Standalone MinIO image compressor that writes WebP objects back to MinIO.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "compress:batch": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "minio": "^8.0.5",
+    "sharp": "^0.33.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

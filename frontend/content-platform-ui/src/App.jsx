@@ -17,6 +17,8 @@ import MessagesPage from "./pages/MessagesPage";
 import NewChatPage from "./pages/NewChatPage";
 import ChatPage from "./pages/ChatPage";
 import EditPostPage from "./pages/EditPostPage";
+import ImageFeedPage from "./pages/ImageFeedPage";
+import UserImagesPage from "./pages/UserImagesPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./components/Layout";
@@ -74,6 +76,17 @@ function App() {
                 />
 
                 <Route
+                    path="/images"
+                    element={
+                        <ProtectedRoute>
+                            <Layout>
+                                <ImageFeedPage />
+                            </Layout>
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route
                     path="/messages/new"
                     element={
                         <ProtectedRoute>
@@ -123,6 +136,17 @@ function App() {
                         <ProtectedRoute>
                             <Layout>
                                 <ProfilePage />
+                            </Layout>
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route
+                    path="/users/:id/images"
+                    element={
+                        <ProtectedRoute>
+                            <Layout>
+                                <UserImagesPage />
                             </Layout>
                         </ProtectedRoute>
                     }

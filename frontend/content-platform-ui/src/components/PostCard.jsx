@@ -223,8 +223,11 @@ function PostCard({
         const key = item.id || `${itemType}-${mediaUrl || textValue}`;
 
         if (itemType === "image" && mediaUrl) {
+            const mediaClassName = `post-card__media${
+                currentPost?.post_kind === "image" && showOpenButton ? " post-card__media--feed-image" : ""
+            }`;
             return (
-                <div key={key} className="post-card__media">
+                <div key={key} className={mediaClassName}>
                     <img src={resolveMediaUrl(mediaUrl)} alt="" />
                 </div>
             );

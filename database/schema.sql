@@ -67,6 +67,7 @@ INSERT INTO role (name) VALUES
 CREATE TABLE post (
     id BIGSERIAL PRIMARY KEY,
     author_id BIGINT NOT NULL,
+    post_kind VARCHAR(30) NOT NULL DEFAULT 'post',
     title VARCHAR(255) NOT NULL,
     description TEXT,
     preview_url VARCHAR(255),
@@ -81,6 +82,8 @@ CREATE TABLE post (
     CONSTRAINT fk_post_original FOREIGN KEY (original_post_id) REFERENCES post(id) ON DELETE SET NULL
 );
 
+CREATE INDEX idx_post_kind_author_created ON post (post_kind, author_id, created_at DESC);
+
 CREATE TABLE post_content (
     id BIGSERIAL PRIMARY KEY,
     post_id BIGINT NOT NULL,
@@ -90,6 +93,32 @@ CREATE TABLE post_content (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_post_content_post FOREIGN KEY (post_id) REFERENCES post(id) ON DELETE CASCADE
 );
+
+CREATE TABLE image_asset (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL UNIQUE,
+    owner_id BIGINT NOT NULL,
+    original_url VARCHAR(255) NOT NULL,
+    compressed_url VARCHAR(255),
+    thumbnail_url VARCHAR(255),
+    feed_thumbnail_url VARCHAR(255),
+    original_storage_key VARCHAR(255),
+    compressed_storage_key VARCHAR(255),
+    thumbnail_storage_key VARCHAR(255),
+    feed_thumbnail_storage_key VARCHAR(255),
+    processing_status VARCHAR(30) NOT NULL DEFAULT 'queued',
+    analysis_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+    analysis_payload JSONB,
+    ocr_text TEXT,
+    caption TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_image_asset_post FOREIGN KEY (post_id) REFERENCES post(id) ON DELETE CASCADE,
+    CONSTRAINT fk_image_asset_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_image_asset_owner_created ON image_asset (owner_id, created_at DESC);
+CREATE INDEX idx_image_asset_ocr ON image_asset USING GIN (to_tsvector('simple', COALESCE(ocr_text, '')));
 
 CREATE TABLE tag (
     id BIGSERIAL PRIMARY KEY,
@@ -207,6 +236,11 @@ CREATE TABLE moderation_action (
 
 CREATE TRIGGER trg_post_updated_at
 BEFORE UPDATE ON post
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_image_asset_updated_at
+BEFORE UPDATE ON image_asset
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

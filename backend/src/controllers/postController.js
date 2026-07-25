@@ -23,6 +23,15 @@ async function createPost(req, res) {
         fail(res, 400, err.message);
     }
 }
+
+async function createImages(req, res) {
+    try {
+        const result = await postService.createImagePosts(req.user.userId, req.body);
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
 async function getPost(req, res) {
     try {
         const data = await postService.getPost(req.params.id, req.user?.userId || null);
@@ -44,6 +53,30 @@ async function listPosts(req, res) {
                 accessType: req.query.accessType,
                 includeTags: parseTagList(req.query.includeTags),
                 excludeTags: parseTagList(req.query.excludeTags)
+            },
+            req.user?.userId || null
+        );
+        ok(res, data);
+    } catch (err) {
+        fail(res, 500, err.message);
+    }
+}
+
+async function listImages(req, res) {
+    try {
+        const scope = String(req.query.scope || "").toLowerCase();
+
+        if (scope === "following" && !req.user?.userId) {
+            ok(res, []);
+            return;
+        }
+
+        const data = await postService.listImages(
+            {
+                limit: req.query.limit,
+                offset: req.query.offset,
+                authorId: req.query.authorId,
+                followedByUserId: scope === "following" ? req.user?.userId : null
             },
             req.user?.userId || null
         );
@@ -106,8 +139,10 @@ async function getReactionUsers(req, res) {
 }
 module.exports = {
     createPost,
+    createImages,
     getPost,
     listPosts,
+    listImages,
     listTags,
     purchasePost,
     getReactionUsers,

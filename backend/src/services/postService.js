@@ -7,7 +7,10 @@ const purchaseRepo = require("../repositories/purchaseRepository");
 const walletRepo = require("../repositories/walletRepository");
 const feedService = require("./feedService");
 const tagCacheService = require("./tagCacheService");
-const { saveDataUrl } = require("../utils/mediaStorage");
+const imageQueueService = require("./imageQueueService");
+const minioStorageService = require("./minioStorageService");
+const cache = require("./redisCacheService");
+const { parseDataUrl, saveDataUrl } = require("../utils/mediaStorage");
 
 const POST_TITLE_LIMIT = 120;
 
@@ -46,9 +49,9 @@ function normalizeAccess(access) {
 }
 
 function normalizeTags(tags = []) {
-    return Array.isArray(tags)
-        ? tags.map((tag) => String(tag || "").trim().toLowerCase()).filter(Boolean)
-        : [];
+    const values = Array.isArray(tags) ? tags : String(tags || "").split(",");
+
+    return values.map((tag) => String(tag || "").trim().toLowerCase()).filter(Boolean);
 }
 
 function validateTitle(title) {
@@ -68,7 +71,10 @@ async function hydratePosts(posts, viewerId) {
     const postIds = posts.map((post) => Number(post.id));
     const accessMap = await postRepo.getPostAccessMap(postIds);
     const contentMap = await postRepo.getPostContentMap(postIds);
+    const imageAssetMap = await postRepo.getImageAssetMap(postIds);
     const tagMap = await postRepo.getPostTagMap(postIds);
+    const reactionCountMap = await getCachedCountMap(postIds, cache.reactionCountKey, () => postRepo.getReactionCountMap(postIds));
+    const commentCountMap = await getCachedCountMap(postIds, cache.commentCountKey, () => postRepo.getCommentCountMap(postIds));
     const accessibleIds = new Set(await purchaseRepo.getAccessiblePostIds(viewerId, postIds));
     return posts.map((post) => {
         const access = accessMap.get(Number(post.id)) || {
@@ -83,13 +89,63 @@ async function hydratePosts(posts, viewerId) {
         return {
             ...post,
             content: canViewContent ? content : [],
+            image: sanitizeImageAsset(imageAssetMap.get(Number(post.id))),
             tags: tagMap.get(Number(post.id)) || [],
+            reaction_count: reactionCountMap.get(Number(post.id)) ?? Number(post.reaction_count || 0),
+            comment_count: commentCountMap.get(Number(post.id)) ?? 0,
             access_type: access.access_type,
             price: Number(access.price || 0),
             can_view_content: canViewContent,
             is_locked: !canViewContent
         };
     });
+}
+
+function sanitizeImageAsset(asset) {
+    if (!asset) {
+        return null;
+    }
+
+    return {
+        id: asset.id,
+        post_id: asset.post_id,
+        owner_id: asset.owner_id,
+        compressed_url: asset.compressed_url,
+        thumbnail_url: asset.thumbnail_url,
+        feed_thumbnail_url: asset.feed_thumbnail_url,
+        processing_status: asset.processing_status,
+        analysis_status: asset.analysis_status,
+        analysis_payload: asset.analysis_payload,
+        ocr_text: asset.ocr_text,
+        caption: asset.caption,
+        created_at: asset.created_at,
+        updated_at: asset.updated_at
+    };
+}
+
+async function getCachedCountMap(postIds, keyBuilder, loader) {
+    const result = new Map();
+    const missingIds = [];
+
+    for (const postId of postIds) {
+        const cached = await cache.readJson(keyBuilder(postId));
+        if (typeof cached === "number") {
+            result.set(Number(postId), cached);
+        } else {
+            missingIds.push(postId);
+        }
+    }
+
+    if (missingIds.length > 0) {
+        const loaded = await loader();
+        for (const postId of missingIds) {
+            const value = Number(loaded.get(Number(postId)) || 0);
+            result.set(Number(postId), value);
+            await cache.writeJson(keyBuilder(postId), value, 300);
+        }
+    }
+
+    return result;
 }
 async function invalidateAuthorFeeds(userId) {
     const followers = await followRepo.getFollowers(userId);
@@ -135,7 +191,7 @@ async function getPost(id, viewerId = null) {
     };
 }
 async function listPosts(filters = {}, viewerId = null) {
-    const { limit, offset, authorId, author, tag, sort, accessType, includeTags, excludeTags } = filters;
+    const { limit, offset, authorId, author, tag, sort, accessType, includeTags, excludeTags, postKind, followedByUserId } = filters;
     const normalizedIncludeTags = Array.isArray(includeTags) ? includeTags : [];
     const normalizedExcludeTags = Array.isArray(excludeTags) ? excludeTags : [];
     const posts = await postRepo.listPosts(
@@ -147,9 +203,116 @@ async function listPosts(filters = {}, viewerId = null) {
         sort || "new",
         accessType || null,
         normalizedIncludeTags,
-        normalizedExcludeTags
+        normalizedExcludeTags,
+        postKind || null,
+        followedByUserId || null
     );
     return hydratePosts(posts, viewerId);
+}
+
+async function invalidateImageCaches(userId) {
+    await cache.deleteKeys([cache.latestProfileImagesKey(userId)]);
+    await invalidateAuthorFeeds(userId);
+}
+
+function normalizeImageUploadItem(item, index) {
+    const parsed = parseDataUrl(item?.file || item?.dataUrl || item?.value);
+
+    if (!parsed) {
+        throw new Error("Image file payload is required");
+    }
+
+    if (!String(parsed.mimeType || "").startsWith("image/")) {
+        throw new Error("Only image files can be uploaded here");
+    }
+
+    const title = String(item?.title || item?.name || `Image ${index + 1}`).trim().slice(0, POST_TITLE_LIMIT);
+
+    return {
+        title: title || `Image ${index + 1}`,
+        description: String(item?.description || "").trim(),
+        tags: normalizeTags(item?.tags),
+        parsed,
+        filename: String(item?.filename || item?.name || `image-${index + 1}.${parsed.extension}`)
+    };
+}
+
+async function createImagePosts(userId, data) {
+    const rawImages = Array.isArray(data?.images) ? data.images : [];
+
+    if (rawImages.length === 0) {
+        throw new Error("Select at least one image");
+    }
+
+    const created = [];
+
+    for (let index = 0; index < rawImages.length; index += 1) {
+        const item = normalizeImageUploadItem(rawImages[index], index);
+        const originalKey = minioStorageService.buildObjectKey("originals", item.filename, item.parsed.extension);
+        const originalObject = await minioStorageService.putObject({
+            key: originalKey,
+            buffer: item.parsed.buffer,
+            contentType: item.parsed.mimeType
+        });
+        const postId = await postRepo.createImagePost(userId, {
+            title: item.title,
+            description: item.description || "",
+            originalUrl: originalObject.url,
+            compressedUrl: null,
+            thumbnailUrl: null,
+            feedThumbnailUrl: null,
+            originalStorageKey: originalObject.key,
+            compressedStorageKey: null,
+            thumbnailStorageKey: null,
+            feedThumbnailStorageKey: null,
+            processingStatus: "queued",
+            analysisStatus: "queued",
+            analysisPayload: null,
+            ocrText: null,
+            caption: null
+        });
+
+        await postRepo.updateImagePostMedia(postId, {
+            contentUrl: null,
+            previewUrl: null
+        });
+
+        await postRepo.syncTags(postId, item.tags);
+        await tagCacheService.addTags(item.tags);
+        await imageQueueService.enqueueImageProcessing(postId);
+        created.push({ postId, tags: item.tags, processingStatus: "queued", analysisStatus: "queued" });
+    }
+
+    await invalidateImageCaches(userId);
+    return created;
+}
+
+async function listImages(filters = {}, viewerId = null) {
+    const wantsLatestProfileImages =
+        filters.authorId &&
+        !filters.followedByUserId &&
+        Number(filters.offset || 0) === 0 &&
+        Number(filters.limit || 40) <= 4;
+
+    if (wantsLatestProfileImages) {
+        const cached = await cache.readJson(cache.latestProfileImagesKey(filters.authorId));
+        if (Array.isArray(cached)) {
+            return cached;
+        }
+    }
+
+    const rows = await postRepo.listImages({
+        limit: filters.limit || 40,
+        offset: filters.offset || 0,
+        authorId: filters.authorId || null,
+        followedByUserId: filters.followedByUserId || null
+    });
+
+    const hydrated = await hydratePosts(rows, viewerId);
+    if (wantsLatestProfileImages) {
+        await cache.writeJson(cache.latestProfileImagesKey(filters.authorId), hydrated, 120);
+    }
+    return hydrated;
 }
 async function listTags(query, limit = 8) {
     const cachedSuggestions = await tagCacheService.getSuggestions(query, limit);
@@ -248,8 +411,11 @@ async function pinPost(userId, postId) {
 
 module.exports = {
     createPost,
+    createImagePosts,
+    invalidateImageCaches,
     getPost,
     listPosts,
+    listImages,
     listTags,
     purchasePost,
     getReactionUsers,

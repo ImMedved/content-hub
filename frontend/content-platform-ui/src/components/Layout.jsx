@@ -11,11 +11,13 @@ Layout
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/auth-context";
+import { useTheme } from "../context/theme-context";
 
 const HEADER_TRANSITION_MS = 220;
 
 function Layout({ children }) {
     const { user, logout } = useAuth();
+    const { activeTheme, toggleTheme } = useTheme();
     const navigate = useNavigate();
     const lastScrollY = useRef(0);
     const animationLock = useRef(false);
@@ -108,6 +110,15 @@ function Layout({ children }) {
                             Messages
                         </NavLink>
 
+                        <NavLink
+                            to="/images"
+                            className={({ isActive }) =>
+                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
+                            }
+                        >
+                            Grid
+                        </NavLink>
+
                         {user?.id && (
                             <NavLink
                                 to={`/users/${user.id}`}
@@ -129,6 +140,9 @@ function Layout({ children }) {
                                 Wallet: {user.wallet_balance}
                             </span>
                         )}
+                        <button className="btn btn--secondary theme-toggle" onClick={toggleTheme} type="button">
+                            {activeTheme === "dark" ? "Dark" : "Light"}
+                        </button>
                         <button className="btn btn--secondary" onClick={handleLogout}>
                             Logout
                         </button>

@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $backendDir = Split-Path -Parent $PSScriptRoot
 $serverProcess = $null
 $startedServer = $false
+$previousNodeEnv = $env:NODE_ENV
 
 function Wait-ForServer {
     param([string]$Url)
@@ -75,6 +76,7 @@ function Invoke-Api {
 }
 
 try {
+    $env:NODE_ENV = "test"
     try {
         $null = & curl.exe -sS "http://127.0.0.1:5000/"
         if ($LASTEXITCODE -ne 0) {
@@ -289,4 +291,5 @@ try {
     if ($startedServer -and $serverProcess -and -not $serverProcess.HasExited) {
         Stop-Process -Id $serverProcess.Id
     }
+    $env:NODE_ENV = $previousNodeEnv
 }

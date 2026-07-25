@@ -10,7 +10,7 @@ const frontendDistPath = path.join(__dirname, "../../frontend/content-platform-u
 // функции, которые выполняются до попадания запроса в обработчик
 // Запрос - express.json() - cors() - auth middleware - router - ответ
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "64mb" }));
 app.use(cors());
 app.use("/uploads", express.static(path.join(__dirname, "../uploads"))); 
 // путь к статическим файлам для загрузки изображений
@@ -24,6 +24,7 @@ const feedRoutes = require("./routes/feedRoutes");
 const commentRoutes = require("./routes/commentRoutes");
 const reactionRoutes = require("./routes/reactionRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const mediaRoutes = require("./routes/mediaRoutes");
 
 const API_PREFIX = "/api/v1"; // префикс для всех маршрутов API
 
@@ -38,6 +39,7 @@ app.use(`${API_PREFIX}/feed`, feedRoutes);
 app.use(`${API_PREFIX}/comments`, commentRoutes);
 app.use(`${API_PREFIX}/reactions`, reactionRoutes);
 app.use(`${API_PREFIX}/messages`, messageRoutes);
+app.use(`${API_PREFIX}/media`, mediaRoutes);
 
 // Это endpoint для проверки, что приложение живо
 app.get("/health", async (req, res) => {

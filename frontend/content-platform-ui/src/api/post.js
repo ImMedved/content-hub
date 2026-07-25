@@ -30,6 +30,16 @@ export async function getPosts(params = {}) {
     return unwrapApiResponse(res);
 }
 
+export async function createImages(data) {
+    const res = await client.post("/posts/images", data);
+    return unwrapApiResponse(res);
+}
+
+export async function getImages(params = {}) {
+    const res = await client.get("/posts/images", { params });
+    return unwrapApiResponse(res);
+}
+
 export async function getTagSuggestions(query, limit = 8) {
     const res = await client.get("/posts/tags", {
         params: {

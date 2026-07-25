@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     ports:
-      - "5434:5432"
+      - "10002:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +21,10 @@ services:
     image: redis:7-alpine
     container_name: content-redis
     restart: unless-stopped
+    cpu_shares: 1024
+    mem_limit: 768m
     ports:
-      - "6381:6379"
+      - "10003:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -31,17 +33,129 @@ services:
       timeout: 5s
       retries: 20
 
+  minio:
+    image: minio/minio:latest
+    container_name: content-minio
+    restart: unless-stopped
+    cpu_shares: 768
+    mem_limit: 1536m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: contenthub
+      MINIO_ROOT_PASSWORD: contenthub-password
+    ports:
+      - "10004:9000"
+      - "10005:9001"
+    volumes:
+      - minio_data:/data
+  thumbnail:
+    build:
+      context: ./thumbnail
+    container_name: content-thumbnail
+    restart: unless-stopped
+    cpu_shares: 512
+    mem_limit: 768m
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: contenthub
+      MINIO_SECRET_KEY: contenthub-password
+    ports:
+      - "10006:8080"
+
+  compress:
+    build:
+      context: ./compress
+    container_name: content-compress
+    restart: unless-stopped
+    cpu_shares: 512
+    mem_limit: 1024m
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      PORT: 8092
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: contenthub
+      MINIO_SECRET_KEY: contenthub-password
+      MINIO_BUCKET: content-images
+      WEBP_QUALITY: 82
+      WEBP_EFFORT: 4
+    ports:
+      - "10007:8092"
+
+  analysis:
+    build:
+      context: ./analysis
+      args:
+        INSTALL_ML: "false"
+    container_name: content-analysis
+    restart: unless-stopped
+    cpu_shares: 128
+    cpus: 1.5
+    mem_limit: 6g
+    oom_score_adj: 500
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: contenthub
+      MINIO_SECRET_KEY: contenthub-password
+      ANALYSIS_RAM_PROFILE: test
+      ANALYSIS_MEMORY_LIMIT_GB: 5
+      ANALYSIS_WORKERS: 1
+      ANALYSIS_ENRICHMENT_WORKERS: 1
+      ANALYSIS_INTRAOP_THREADS: 2
+      ANALYSIS_MAX_PENDING_FAST_REQUESTS: 2
+      ANALYSIS_MAX_PENDING_ENRICHMENT_REQUESTS: 1
+      ANALYSIS_PRELOAD_ON_STARTUP: "false"
+      ANALYSIS_ALLOW_MODEL_DOWNLOAD: "true"
+      ANALYSIS_PROVIDER: local_ml
+      OCR_ENGINE: none
+      ENABLE_YOLO: "false"
+      ENABLE_CLIP: "false"
+      ENABLE_VLM: "false"
+      ANALYSIS_DATASET_DIR: /app/private-data/dataset
+      ANALYSIS_GENERATED_DIR: /app/generated
+      ANALYSIS_DEBUG_DIR: /app/generated/debug
+      TOKENIZERS_PARALLELISM: "false"
+    volumes:
+      - analysis_models:/models
+      - ./analysis/dataset:/app/private-data/dataset:ro
+      - ./analysis/generated:/app/generated
+    ports:
+      - "10008:8090"
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: content-backend
     restart: unless-stopped
+    cpu_shares: 1024
+    mem_limit: 1536m
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
+      thumbnail:
+        condition: service_started
+      compress:
+        condition: service_started
+      analysis:
+        condition: service_started
     environment:
       NODE_ENV: production
       PORT: 5002
@@ -53,10 +167,20 @@ services:
       JWT_SECRET: mysecretkey
       EMAIL_HASH_SECRET: content-platform-email
       REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: contenthub
+      MINIO_SECRET_KEY: contenthub-password
+      MINIO_BUCKET_IMAGES: content-images
+      ANALYSIS_SERVICE_URL: http://analysis:8090
+      ANALYSIS_REQUEST_TIMEOUT_MS: 90000
+      THUMBNAIL_SERVICE_URL: http://thumbnail:8080
+      COMPRESS_SERVICE_URL: http://compress:8092
+      IMAGE_QUEUE_WORKER: "true"
       DB_SCHEMA_STRATEGY: sync_reset_on_change
       SERVE_FRONTEND: "false"
     ports:
-      - "5002:5002"
+      - "10001:5002"
     volumes:
       - ./backend/uploads:/app/uploads
 
@@ -64,15 +188,19 @@ services:
     build:
       context: ./frontend/content-platform-ui
       args:
-        VITE_API_BASE_URL: http://localhost:5002/api/v1
+        VITE_API_BASE_URL: http://localhost:10001/api/v1
     container_name: content-frontend
     restart: unless-stopped
+    cpu_shares: 768
+    mem_limit: 512m
     depends_on:
       backend:
         condition: service_started
     ports:
-      - "3000:80"
+      - "10000:80"
 
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
+  analysis_models:

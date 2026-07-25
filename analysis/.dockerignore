@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+analysis-evaluation/images
+analysis-evaluation/results
+analysis-evaluation/reports
+models
+dataset
+generated
+private-data
+analysis-generated

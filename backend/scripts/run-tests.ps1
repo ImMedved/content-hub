@@ -8,7 +8,7 @@ try {
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
 
-    docker compose up -d postgres redis 2>$null
+    docker compose up -d postgres redis minio thumbnail compress analysis 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "docker compose up failed, continuing with existing services if available."
     }
@@ -16,7 +16,7 @@ try {
     $dbExists = docker compose exec -T postgres psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'content_platform_test';" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Could not inspect test database through docker compose. Continuing."
-    } elseif ($dbExists.Trim() -ne "1") {
+    } elseif (($null -eq $dbExists) -or ($dbExists.Trim() -ne "1")) {
         docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE content_platform_test;" 2>$null
     }
 

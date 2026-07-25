@@ -120,6 +120,82 @@ CREATE TABLE image_asset (
 CREATE INDEX idx_image_asset_owner_created ON image_asset (owner_id, created_at DESC);
 CREATE INDEX idx_image_asset_ocr ON image_asset USING GIN (to_tsvector('simple', COALESCE(ocr_text, '')));
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE media_asset (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id BIGINT,
+    owner_id BIGINT NOT NULL,
+    original_url VARCHAR(255) NOT NULL,
+    original_storage_key VARCHAR(255),
+    hls_storage_prefix VARCHAR(255),
+    poster_url VARCHAR(255),
+    status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+    duration_seconds DECIMAL(12, 3),
+    source_width INTEGER,
+    source_height INTEGER,
+    source_fps DECIMAL(8, 3),
+    has_audio BOOLEAN NOT NULL DEFAULT FALSE,
+    playable_at TIMESTAMPTZ,
+    ready_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_media_asset_post FOREIGN KEY (post_id) REFERENCES post(id) ON DELETE CASCADE,
+    CONSTRAINT fk_media_asset_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_media_asset_owner_created ON media_asset (owner_id, created_at DESC);
+CREATE INDEX idx_media_asset_post_id ON media_asset (post_id);
+
+CREATE TABLE media_job (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    media_id UUID NOT NULL,
+    type VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    lease_owner VARCHAR(128),
+    lease_until TIMESTAMPTZ,
+    progress_percent INTEGER,
+    error_code VARCHAR(128),
+    error_message TEXT,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    CONSTRAINT fk_media_job_asset FOREIGN KEY (media_id) REFERENCES media_asset(id) ON DELETE CASCADE,
+    CONSTRAINT uq_media_job_type UNIQUE (media_id, type)
+);
+
+CREATE INDEX idx_media_job_poll ON media_job (status, available_at, priority DESC, created_at);
+
+CREATE TABLE media_rendition (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    media_id UUID NOT NULL,
+    label VARCHAR(32) NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    bitrate_kbps INTEGER NOT NULL,
+    crf INTEGER,
+    playlist_storage_key VARCHAR(255),
+    status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_media_rendition_asset FOREIGN KEY (media_id) REFERENCES media_asset(id) ON DELETE CASCADE,
+    CONSTRAINT uq_media_rendition_label UNIQUE (media_id, label)
+);
+
+CREATE TABLE media_master_revision (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    media_id UUID NOT NULL,
+    revision INTEGER NOT NULL,
+    playlist_storage_key VARCHAR(255) NOT NULL,
+    published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_media_master_revision_asset FOREIGN KEY (media_id) REFERENCES media_asset(id) ON DELETE CASCADE,
+    CONSTRAINT uq_media_master_revision UNIQUE (media_id, revision)
+);
+
 CREATE TABLE tag (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(50) NOT NULL UNIQUE
@@ -241,6 +317,16 @@ EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER trg_image_asset_updated_at
 BEFORE UPDATE ON image_asset
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_media_asset_updated_at
+BEFORE UPDATE ON media_asset
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_media_rendition_updated_at
+BEFORE UPDATE ON media_rendition
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

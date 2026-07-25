@@ -35,6 +35,11 @@ export async function createImages(data) {
     return unwrapApiResponse(res);
 }
 
+export async function createVideo(data) {
+    const res = await client.post("/posts/videos", data);
+    return unwrapApiResponse(res);
+}
+
 export async function getImages(params = {}) {
     const res = await client.get("/posts/images", { params });
     return unwrapApiResponse(res);

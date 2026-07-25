@@ -1,6 +1,7 @@
 import express from "express";
 import { loadConfig } from "./config.js";
 import { compressSingleObject } from "./index.js";
+import { transcodeVideoToHls } from "./video-hls.js";
 
 const app = express();
 const port = Number(process.env.PORT || 8092);
@@ -38,6 +39,22 @@ app.post("/compress", async (req, res) => {
   }
 });
 
+app.post("/video/hls", async (req, res) => {
+  try {
+    const baseConfig = loadConfig({
+      ...process.env,
+      MINIO_BUCKET: req.body?.bucket || process.env.MINIO_BUCKET,
+      SOURCE_PREFIX: "",
+      DESTINATION_PREFIX: ""
+    });
+    const result = await transcodeVideoToHls(baseConfig, req.body || {});
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(port, () => {
-  console.log(`Image compressor listening on ${port}`);
+  console.log(`Media compressor listening on ${port}`);
 });

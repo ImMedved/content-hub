@@ -6,7 +6,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache vips
+RUN apk add --no-cache ffmpeg tini vips
 
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm \
@@ -14,4 +14,5 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY src ./src
 
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["npm", "start"]

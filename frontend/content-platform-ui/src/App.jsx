@@ -18,6 +18,7 @@ import NewChatPage from "./pages/NewChatPage";
 import ChatPage from "./pages/ChatPage";
 import EditPostPage from "./pages/EditPostPage";
 import ImageFeedPage from "./pages/ImageFeedPage";
+import VideoFeedPage from "./pages/VideoFeedPage";
 import UserImagesPage from "./pages/UserImagesPage";
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -81,6 +82,17 @@ function App() {
                         <ProtectedRoute>
                             <Layout>
                                 <ImageFeedPage />
+                            </Layout>
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route
+                    path="/videos"
+                    element={
+                        <ProtectedRoute>
+                            <Layout>
+                                <VideoFeedPage />
                             </Layout>
                         </ProtectedRoute>
                     }

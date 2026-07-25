@@ -16,6 +16,10 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+    await db.query("DELETE FROM media_master_revision");
+    await db.query("DELETE FROM media_rendition");
+    await db.query("DELETE FROM media_job");
+    await db.query("DELETE FROM media_asset");
     await db.query("DELETE FROM direct_message");
     await db.query("DELETE FROM reaction");
     await db.query("DELETE FROM comment");

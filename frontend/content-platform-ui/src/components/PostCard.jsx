@@ -9,6 +9,7 @@ import { resolveMediaUrl } from "../utils/media";
 import { normalizePostDetail } from "../utils/post";
 import useRevealOnScroll from "../utils/useRevealOnScroll";
 import CommentThread from "./CommentThread";
+import LazyHlsVideo from "./LazyHlsVideo";
 import PostTagList from "./PostTagList";
 
 function PostCard({
@@ -236,7 +237,11 @@ function PostCard({
         if (itemType === "video" && mediaUrl) {
             return (
                 <div key={key} className="post-card__media">
-                    <video src={resolveMediaUrl(mediaUrl)} controls />
+                    <LazyHlsVideo
+                        src={mediaUrl}
+                        mediaId={item.media_id || item.media_asset_id || item.mediaId || ""}
+                        posterUrl={currentPost.preview_url || ""}
+                    />
                 </div>
             );
         }

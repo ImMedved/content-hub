@@ -82,6 +82,9 @@ function ImageFeedPage() {
                 <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/images">
                     Images
                 </Link>
+                <Link className="feed-content-tabs__item" to="/videos">
+                    Videos
+                </Link>
             </div>
 
             <div className="feed-toolbar card">

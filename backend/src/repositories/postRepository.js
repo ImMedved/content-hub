@@ -93,6 +93,73 @@ async function createImagePost(authorId, imageData) {
     }
 }
 
+async function createVideoPost(authorId, videoData) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [postResult] = await connection.query(
+            `INSERT INTO post (author_id, post_kind, title, description, preview_url, status)
+             VALUES (?, 'video', ?, ?, NULL, ?) RETURNING id`,
+            [
+                authorId,
+                videoData.title,
+                videoData.description || "",
+                "published"
+            ]
+        );
+        const postId = postResult.insertId;
+
+        const [mediaRows] = await connection.query(
+            `WITH inserted AS (
+                INSERT INTO media_asset (
+                    post_id,
+                    owner_id,
+                    original_url,
+                    original_storage_key,
+                    hls_storage_prefix,
+                    status
+                 ) VALUES (?, ?, ?, ?, ?, 'uploaded') RETURNING id
+             )
+             SELECT id FROM inserted`,
+            [
+                postId,
+                authorId,
+                videoData.originalUrl,
+                videoData.originalStorageKey,
+                videoData.hlsStoragePrefix
+            ]
+        );
+        const mediaId = mediaRows[0]?.id;
+
+        await connection.query(
+            `INSERT INTO media_job (media_id, type, status, priority)
+             VALUES (?, 'VIDEO_HLS_TRANSCODE', 'queued', 900)`,
+            [mediaId]
+        );
+
+        await connection.query(
+            `INSERT INTO post_content (post_id, content_type, content_url, text_content)
+             VALUES (?, 'video', ?, NULL)`,
+            [postId, `hls:${mediaId}`]
+        );
+
+        await connection.query(
+            "INSERT INTO post_access (post_id, access_type, price) VALUES (?, ?, ?)",
+            [postId, videoData.access.type, videoData.access.price || 0]
+        );
+
+        await connection.commit();
+        return { postId, mediaId };
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
 async function getImageAssetByPostId(postId) {
     const [[row]] = await db.query(
         "SELECT * FROM image_asset WHERE post_id = ?",
@@ -151,6 +218,128 @@ async function updateImagePostMedia(postId, { contentUrl, previewUrl }) {
             await connection.query(
                 "UPDATE post_content SET content_url = ? WHERE post_id = ? AND content_type = 'image'",
                 [contentUrl, postId]
+            );
+        }
+
+        await connection.commit();
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
+async function markVideoProcessingStarted(mediaId) {
+    await db.query(
+        "UPDATE media_asset SET status = 'processing_fast_version' WHERE id = ?",
+        [mediaId]
+    );
+}
+
+async function markVideoProcessingFailed(mediaId, errorMessage) {
+    await db.query(
+        `UPDATE media_asset
+         SET status = 'failed'
+         WHERE id = ?`,
+        [mediaId]
+    );
+
+    await db.query(
+        `INSERT INTO media_job (media_id, type, status, priority, attempt, error_message, finished_at)
+         VALUES (?, 'VIDEO_HLS_TRANSCODE', 'failed', 900, 1, ?, NOW())
+         ON CONFLICT (media_id, type)
+         DO UPDATE SET status = 'failed', error_message = EXCLUDED.error_message, finished_at = NOW()`,
+        [mediaId, String(errorMessage || "Video processing failed").slice(0, 2000)]
+    );
+}
+
+async function markVideoPlayable(mediaId, result) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const posterUrl = result.posterKey ? `/api/v1/media/${encodeURIComponent(result.posterKey)}` : null;
+        const mediaRows = await connection.query(
+            `UPDATE media_asset
+             SET status = 'playable',
+                 hls_storage_prefix = ?,
+                 poster_url = ?,
+                 duration_seconds = ?,
+                 source_width = ?,
+                 source_height = ?,
+                 source_fps = ?,
+                 has_audio = ?,
+                 playable_at = NOW(),
+                 ready_at = NOW()
+             WHERE id = ?
+             RETURNING post_id`,
+            [
+                result.hlsPrefix,
+                posterUrl,
+                result.probe?.duration || null,
+                result.probe?.width || null,
+                result.probe?.height || null,
+                result.probe?.fps || null,
+                Boolean(result.probe?.hasAudio),
+                mediaId
+            ]
+        );
+        const postId = mediaRows[0][0]?.post_id;
+
+        await connection.query(
+            `INSERT INTO media_master_revision (media_id, revision, playlist_storage_key)
+             VALUES (?, 1, 'master/revision_1.m3u8')
+             ON CONFLICT (media_id, revision)
+             DO UPDATE SET playlist_storage_key = EXCLUDED.playlist_storage_key, published_at = NOW()`,
+            [mediaId]
+        );
+
+        for (const rendition of result.renditions || []) {
+            await connection.query(
+                `INSERT INTO media_rendition (
+                    media_id,
+                    label,
+                    width,
+                    height,
+                    bitrate_kbps,
+                    crf,
+                    playlist_storage_key,
+                    status
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready')
+                 ON CONFLICT (media_id, label)
+                 DO UPDATE SET
+                    width = EXCLUDED.width,
+                    height = EXCLUDED.height,
+                    bitrate_kbps = EXCLUDED.bitrate_kbps,
+                    crf = EXCLUDED.crf,
+                    playlist_storage_key = EXCLUDED.playlist_storage_key,
+                    status = 'ready'`,
+                [
+                    mediaId,
+                    rendition.label,
+                    rendition.width,
+                    rendition.height,
+                    rendition.bitrate,
+                    rendition.crf,
+                    `video/${rendition.label}/r1/index.m3u8`
+                ]
+            );
+        }
+
+        await connection.query(
+            `INSERT INTO media_job (media_id, type, status, priority, attempt, progress_percent, finished_at)
+             VALUES (?, 'VIDEO_HLS_TRANSCODE', 'finished', 900, 1, 100, NOW())
+             ON CONFLICT (media_id, type)
+             DO UPDATE SET status = 'finished', progress_percent = 100, finished_at = NOW()`,
+            [mediaId]
+        );
+
+        if (postId && posterUrl) {
+            await connection.query(
+                "UPDATE post SET preview_url = ? WHERE id = ?",
+                [posterUrl, postId]
             );
         }
 
@@ -655,9 +844,13 @@ async function pinPost(postId, authorId) {
 module.exports = {
     createPost,
     createImagePost,
+    createVideoPost,
     getImageAssetByPostId,
     updateImageAssetProcessing,
     updateImagePostMedia,
+    markVideoPlayable,
+    markVideoProcessingFailed,
+    markVideoProcessingStarted,
     clearPinnedForAuthor,
     updatePost,
     addContent,

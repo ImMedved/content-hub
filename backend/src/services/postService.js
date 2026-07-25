@@ -9,6 +9,7 @@ const feedService = require("./feedService");
 const tagCacheService = require("./tagCacheService");
 const imageQueueService = require("./imageQueueService");
 const minioStorageService = require("./minioStorageService");
+const videoProcessingService = require("./videoProcessingService");
 const cache = require("./redisCacheService");
 const { parseDataUrl, saveDataUrl } = require("../utils/mediaStorage");
 
@@ -287,6 +288,64 @@ async function createImagePosts(userId, data) {
     return created;
 }
 
+function normalizeVideoUploadItem(data) {
+    const parsed = parseDataUrl(data?.file || data?.dataUrl || data?.value);
+
+    if (!parsed) {
+        throw new Error("Video file payload is required");
+    }
+
+    if (!String(parsed.mimeType || "").startsWith("video/")) {
+        throw new Error("Only video files can be uploaded here");
+    }
+
+    const title = String(data?.title || data?.name || "Video").trim().slice(0, POST_TITLE_LIMIT);
+
+    return {
+        title: title || "Video",
+        description: String(data?.description || "").trim(),
+        tags: normalizeTags(data?.tags),
+        access: normalizeAccess(data?.access),
+        parsed,
+        filename: String(data?.filename || data?.name || `video.${parsed.extension}`)
+    };
+}
+
+async function createVideoPost(userId, data) {
+    const item = normalizeVideoUploadItem(data || {});
+    const originalKey = minioStorageService.buildObjectKey("videos/originals", item.filename, item.parsed.extension);
+    const originalObject = await minioStorageService.putObject({
+        key: originalKey,
+        buffer: item.parsed.buffer,
+        contentType: item.parsed.mimeType
+    });
+    const hlsStoragePrefix = `media/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const { postId, mediaId } = await postRepo.createVideoPost(userId, {
+        title: item.title,
+        description: item.description,
+        originalUrl: originalObject.url,
+        originalStorageKey: originalObject.key,
+        hlsStoragePrefix,
+        access: item.access
+    });
+
+    await postRepo.syncTags(postId, item.tags);
+    await tagCacheService.addTags(item.tags);
+    await invalidateAuthorFeeds(userId);
+
+    videoProcessingService.processVideoInBackground({
+        mediaId,
+        sourceKey: originalObject.key,
+        hlsStoragePrefix
+    });
+
+    return {
+        postId,
+        mediaId,
+        processingStatus: "queued"
+    };
+}
+
 async function listImages(filters = {}, viewerId = null) {
     const wantsLatestProfileImages =
         filters.authorId &&
@@ -412,6 +471,7 @@ async function pinPost(userId, postId) {
 module.exports = {
     createPost,
     createImagePosts,
+    createVideoPost,
     invalidateImageCaches,
     getPost,
     listPosts,

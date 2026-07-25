@@ -119,6 +119,15 @@ function Layout({ children }) {
                             Grid
                         </NavLink>
 
+                        <NavLink
+                            to="/videos"
+                            className={({ isActive }) =>
+                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
+                            }
+                        >
+                            Videos
+                        </NavLink>
+
                         {user?.id && (
                             <NavLink
                                 to={`/users/${user.id}`}

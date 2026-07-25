@@ -8,7 +8,7 @@ try {
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
 
-    docker compose up -d postgres redis minio thumbnail compress analysis 2>$null
+    docker compose up -d postgres redis minio image-output compress analysis 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "docker compose up failed, continuing with existing services if available."
     }

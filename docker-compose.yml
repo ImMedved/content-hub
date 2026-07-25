@@ -48,10 +48,10 @@ services:
       - "10005:9001"
     volumes:
       - minio_data:/data
-  thumbnail:
+  image-output:
     build:
       context: ./thumbnail
-    container_name: content-thumbnail
+    container_name: content-image-output
     restart: unless-stopped
     cpu_shares: 512
     mem_limit: 768m
@@ -85,6 +85,11 @@ services:
       MINIO_ACCESS_KEY: contenthub
       MINIO_SECRET_KEY: contenthub-password
       MINIO_BUCKET: content-images
+      MEDIA_WORK_DIR: /tmp
+      TRANSCODE_CONCURRENCY: 1
+      FFMPEG_THREADS: 2
+      FAST_RENDITION_HEIGHT: 480
+      MAX_RENDITION_HEIGHT: 1080
       WEBP_QUALITY: 82
       WEBP_EFFORT: 4
     ports:
@@ -150,7 +155,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
-      thumbnail:
+      image-output:
         condition: service_started
       compress:
         condition: service_started
@@ -166,6 +171,7 @@ services:
       DB_PASSWORD: password
       JWT_SECRET: mysecretkey
       EMAIL_HASH_SECRET: content-platform-email
+      JSON_BODY_LIMIT: 256mb
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -174,7 +180,7 @@ services:
       MINIO_BUCKET_IMAGES: content-images
       ANALYSIS_SERVICE_URL: http://analysis:8090
       ANALYSIS_REQUEST_TIMEOUT_MS: 90000
-      THUMBNAIL_SERVICE_URL: http://thumbnail:8080
+      THUMBNAIL_SERVICE_URL: http://image-output:8080
       COMPRESS_SERVICE_URL: http://compress:8092
       IMAGE_QUEUE_WORKER: "true"
       DB_SCHEMA_STRATEGY: sync_reset_on_change

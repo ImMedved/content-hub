@@ -10,8 +10,11 @@ const frontendDistPath = path.join(__dirname, "../../frontend/content-platform-u
 // функции, которые выполняются до попадания запроса в обработчик
 // Запрос - express.json() - cors() - auth middleware - router - ответ
 
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "64mb" }));
-app.use(cors());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "256mb" }));
+app.use(cors({
+    origin: true,
+    credentials: true
+}));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads"))); 
 // путь к статическим файлам для загрузки изображений
 // пользователь загрузил файл - браузер сможет его открыть и сам прочитать, если знает путь к нему

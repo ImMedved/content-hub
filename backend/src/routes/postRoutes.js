@@ -6,6 +6,7 @@ const optionalAuthMiddleware = require("../middleware/optionalAuthMiddleware");
 // protected
 router.post("/", authMiddleware, postController.createPost);
 router.post("/images", authMiddleware, postController.createImages);
+router.post("/videos", authMiddleware, postController.createVideo);
 router.put("/:id", authMiddleware, postController.updatePost);
 router.delete("/:id", authMiddleware, postController.deletePost);
 router.post("/:id/pin", authMiddleware, postController.pinPost);

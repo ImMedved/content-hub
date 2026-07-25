@@ -32,6 +32,15 @@ async function createImages(req, res) {
         fail(res, 400, err.message);
     }
 }
+
+async function createVideo(req, res) {
+    try {
+        const result = await postService.createVideoPost(req.user.userId, req.body);
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
 async function getPost(req, res) {
     try {
         const data = await postService.getPost(req.params.id, req.user?.userId || null);
@@ -51,6 +60,7 @@ async function listPosts(req, res) {
                 tag: req.query.tag,
                 sort: req.query.sort,
                 accessType: req.query.accessType,
+                postKind: req.query.postKind,
                 includeTags: parseTagList(req.query.includeTags),
                 excludeTags: parseTagList(req.query.excludeTags)
             },
@@ -140,6 +150,7 @@ async function getReactionUsers(req, res) {
 module.exports = {
     createPost,
     createImages,
+    createVideo,
     getPost,
     listPosts,
     listImages,

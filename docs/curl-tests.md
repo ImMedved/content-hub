@@ -1,24 +1,15 @@
 # curl API checks
 
-Runnable commands:
-
-```bash
-./scripts/deploy-linux.sh test-all
-
-cd backend
-./scripts/test-curl.sh
-```
-
 Base URL used below:
 
 ```bash
-export API_BASE_URL="http://localhost:5000/api/v1"
+export API_BASE_URL="http://localhost:10000/api/v1"
 ```
 
 PowerShell equivalent:
 
 ```powershell
-$env:API_BASE_URL = "http://localhost:5000/api/v1"
+$env:API_BASE_URL = "http://localhost:10000/api/v1"
 ```
 
 ## 1. Register two users

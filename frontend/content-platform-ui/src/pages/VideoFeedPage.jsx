@@ -3,10 +3,22 @@ import { Link } from "react-router-dom";
 import { createVideo, getPosts } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import EmptyState from "../components/EmptyState";
-import PostCard from "../components/PostCard";
 import ScrollToTopButton from "../components/ScrollToTopButton";
+import { resolveMediaUrl } from "../utils/media";
 import { readFileAsDataUrl } from "../utils/postForm";
 import { useToast } from "../context/useToast";
+
+function getVideoPoster(post) {
+    return post?.preview_url || post?.image?.feed_thumbnail_url || post?.image?.thumbnail_url || "";
+}
+
+function getVideoLikes(post) {
+    if (typeof post?.reaction_count === "number") {
+        return post.reaction_count;
+    }
+
+    return Number(post?.reaction_count || 0);
+}
 
 function VideoFeedPage() {
     const fileInputRef = useRef(null);
@@ -14,6 +26,7 @@ function VideoFeedPage() {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [uploadAsPost, setUploadAsPost] = useState(false);
     const [error, setError] = useState("");
 
     const loadVideos = useCallback(async () => {
@@ -66,7 +79,8 @@ function VideoFeedPage() {
                 filename: file.name,
                 file: dataUrl,
                 access: { type: "free", price: 0 },
-                tags: ["video"]
+                tags: ["video"],
+                uploadAsPost
             });
             showToast("Video upload started", "success");
             await loadVideos();
@@ -100,28 +114,19 @@ function VideoFeedPage() {
                     >
                         {uploading ? "Uploading..." : "Upload video"}
                     </button>
+                    <label className="checkbox-field checkbox-field--inline">
+                        <input
+                            type="checkbox"
+                            checked={uploadAsPost}
+                            onChange={(event) => setUploadAsPost(event.target.checked)}
+                            disabled={uploading}
+                        />
+                        <span>Upload as post</span>
+                    </label>
                     <button className="btn btn--secondary" type="button" onClick={loadVideos} disabled={loading}>
                         Refresh
                     </button>
                 </div>
-            </div>
-
-            <div className="feed-content-tabs">
-                <Link className="feed-content-tabs__item" to="/">
-                    Posts
-                </Link>
-                <Link className="feed-content-tabs__item" to="/images">
-                    Images
-                </Link>
-                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/videos">
-                    Videos
-                </Link>
-                <Link className="feed-content-tabs__item" to="/audio">
-                    Audio
-                </Link>
-                <Link className="feed-content-tabs__item" to="/tracks">
-                    Tracks
-                </Link>
             </div>
 
             {loading && <EmptyState>Loading videos...</EmptyState>}
@@ -130,9 +135,37 @@ function VideoFeedPage() {
                 <EmptyState>Upload a video to create the first video post.</EmptyState>
             )}
 
-            <div className="post-list">
+            <div className="video-grid">
                 {posts.map((post) => (
-                    <PostCard key={`video-${post.id}`} post={post} animateOnScroll />
+                    <article key={`video-${post.id}`} className="video-card">
+                        <Link className="video-card__preview" to={`/posts/${post.id}`}>
+                            {getVideoPoster(post) ? (
+                                <img src={resolveMediaUrl(getVideoPoster(post))} alt="" loading="lazy" />
+                            ) : (
+                                <div className="video-card__placeholder">Preparing video</div>
+                            )}
+                        </Link>
+                        <div className="video-card__body">
+                            <Link className="video-card__avatar-link" to={`/users/${post.author_id}`}>
+                                <img className="avatar avatar--sm" src={resolveMediaUrl(post.author_avatar_url)} alt="" />
+                            </Link>
+                            <div className="video-card__meta">
+                                <Link className="video-card__title" to={`/posts/${post.id}`}>
+                                    {post.title || `Video #${post.id}`}
+                                </Link>
+                                <Link className="video-card__author" to={`/users/${post.author_id}`}>
+                                    {post.authorName || post.author_username || `User #${post.author_id}`}
+                                </Link>
+                                <div className="video-card__stats">
+                                    <span>{getVideoLikes(post)} likes</span>
+                                    <span>{post.created_at ? new Date(post.created_at).toLocaleDateString() : ""}</span>
+                                </div>
+                            </div>
+                            <Link className="video-card__menu" to={`/posts/${post.id}`} aria-label="Open video">
+                                &#8942;
+                            </Link>
+                        </div>
+                    </article>
                 ))}
             </div>
 

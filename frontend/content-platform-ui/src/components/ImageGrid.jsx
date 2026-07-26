@@ -2,7 +2,13 @@ import { Link } from "react-router-dom";
 import { resolveMediaUrl } from "../utils/media";
 
 function getImagePreview(post) {
-    return post?.image?.thumbnail_url || null;
+    return post?.image?.thumbnail_url || post?.image?.feed_thumbnail_url || post?.preview_url || null;
+}
+
+function isVideoPost(post) {
+    const content = Array.isArray(post?.content) ? post.content : [];
+
+    return post?.post_kind === "video" || content.some((item) => (item.content_type || item.type) === "video");
 }
 
 function ImageGrid({ images, limit = null, onOpen = null, emptyText = "No images yet.", linkTo = null }) {
@@ -14,28 +20,32 @@ function ImageGrid({ images, limit = null, onOpen = null, emptyText = "No images
 
     return (
         <div className="image-grid">
-            {visibleImages.map((post) => {
+            {visibleImages.map((post, index) => {
                 const previewUrl = getImagePreview(post);
+                const isVideo = isVideoPost(post);
                 const content = previewUrl ? (
-                    <img
-                        src={resolveMediaUrl(previewUrl)}
-                        alt={post.title || ""}
-                        loading="lazy"
-                    />
+                    <>
+                        <img
+                            src={resolveMediaUrl(previewUrl)}
+                            alt={post.title || ""}
+                            loading="lazy"
+                        />
+                        {isVideo && <span className="image-grid__video-badge">Play</span>}
+                    </>
                 ) : (
                     <div className="image-grid__pending">Processing</div>
                 );
 
-                if (typeof onOpen === "function") {
+                if (typeof onOpen === "function" && !isVideo) {
                     return (
-                        <button key={post.id} className="image-grid__item" type="button" onClick={() => onOpen(post)}>
+                        <button key={`${post.id}-${index}`} className="image-grid__item" type="button" onClick={() => onOpen(post)}>
                             {content}
                         </button>
                     );
                 }
 
                 return (
-                    <Link key={post.id} className="image-grid__item" to={linkTo || `/posts/${post.id}`}>
+                    <Link key={`${post.id}-${index}`} className="image-grid__item" to={linkTo || `/posts/${post.id}`}>
                         {content}
                     </Link>
                 );

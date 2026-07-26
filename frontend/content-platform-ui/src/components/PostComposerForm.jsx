@@ -19,19 +19,17 @@ function PostComposerForm({
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
     const { clearDraft } = usePostDraft(storageKey, form, setForm);
-    const previewFileUrl = useMemo(
-        () => (form.imageFile ? URL.createObjectURL(form.imageFile) : ""),
-        [form.imageFile]
+    const previewFileUrls = useMemo(
+        () => (Array.isArray(form.imageFiles) ? form.imageFiles.map((file) => URL.createObjectURL(file)) : []),
+        [form.imageFiles]
     );
-    const previewUrl = previewFileUrl || form.imageUrl.trim();
+    const previewUrl = previewFileUrls[0] || form.imageUrl.trim();
 
     useEffect(() => {
         return () => {
-            if (previewFileUrl) {
-                URL.revokeObjectURL(previewFileUrl);
-            }
+            previewFileUrls.forEach((url) => URL.revokeObjectURL(url));
         };
-    }, [previewFileUrl]);
+    }, [previewFileUrls]);
 
     function updateField(fieldName, value) {
         setForm((current) => ({
@@ -41,18 +39,20 @@ function PostComposerForm({
     }
 
     function handleImageFileChange(event) {
-        const file = event.target.files?.[0] || null;
+        const files = Array.from(event.target.files || []).slice(0, 9);
 
         setForm((current) => ({
             ...current,
-            imageFile: file,
-            imageUrl: file ? "" : current.imageUrl
+            imageFiles: files,
+            imageFile: files[0] || null,
+            imageUrl: files.length > 0 ? "" : current.imageUrl
         }));
     }
 
     function clearSelectedImage() {
         setForm((current) => ({
             ...current,
+            imageFiles: [],
             imageFile: null,
             imageUrl: ""
         }));
@@ -163,14 +163,16 @@ function PostComposerForm({
                         </label>
 
                         <label className="field">
-                            <span className="field__label">Image file</span>
+                            <span className="field__label">Image files</span>
                             <input
                                 className="field__input"
                                 type="file"
                                 accept="image/*"
+                                multiple
                                 onChange={handleImageFileChange}
                                 disabled={submitting}
                             />
+                            <span className="field__hint">Up to 9 images can be shown as a grid.</span>
                         </label>
 
                         <label className="field">
@@ -198,7 +200,15 @@ function PostComposerForm({
                                             Clear image
                                         </button>
                                     </div>
-                                    <img className="post-preview__image" src={previewUrl} alt="" />
+                                    {previewFileUrls.length > 1 ? (
+                                        <div className="post-preview__grid">
+                                            {previewFileUrls.map((url) => (
+                                                <img key={url} src={url} alt="" />
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <img className="post-preview__image" src={previewUrl} alt="" />
+                                    )}
                                 </div>
                             </div>
                         )}

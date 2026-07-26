@@ -27,8 +27,19 @@ async function removeReaction(userId, postId) {
     await cache.deleteKeys([cache.reactionCountKey(postId)]);
 }
 
-async function getReactions(postId) {
-    return await reactionRepo.getReactions(postId);
+async function getReactions(postId, viewerId = null, includeViewer = false) {
+    const reactions = await reactionRepo.getReactions(postId);
+
+    if (!includeViewer) {
+        return reactions;
+    }
+
+    const viewerReaction = await reactionRepo.getUserReaction(postId, viewerId);
+
+    return {
+        reactions,
+        viewerReaction
+    };
 }
 
 async function getReactionCount(postId) {

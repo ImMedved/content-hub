@@ -44,7 +44,8 @@ function buildProcessingDetails(session) {
 function LazyHlsAudio({
     src,
     mediaId = "",
-    autoPlay = false
+    autoPlay = false,
+    showProcessingDetails = true
 }) {
     const rootRef = useRef(null);
     const [shouldLoad, setShouldLoad] = useState(false);
@@ -130,10 +131,10 @@ function LazyHlsAudio({
                         onStatusChange={setStatus}
                         onError={setError}
                     />
-                    {(error || details) && (
+                    {(error || (showProcessingDetails && details)) && (
                         <div className="hls-audio__diagnostics">
                             {error && <div>{error}</div>}
-                            {details && <div>{details}</div>}
+                            {showProcessingDetails && details && <div>{details}</div>}
                         </div>
                     )}
                 </>
@@ -149,7 +150,7 @@ function LazyHlsAudio({
                     <div className="hls-audio__placeholder-title">
                         {error || (status ? `Audio status: ${status}` : "Preparing audio...")}
                     </div>
-                    {details && (
+                    {showProcessingDetails && details && (
                         <div className="hls-audio__placeholder-details">
                             {details}
                         </div>

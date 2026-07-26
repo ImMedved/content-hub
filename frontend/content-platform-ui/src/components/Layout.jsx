@@ -12,17 +12,20 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/auth-context";
 import { useTheme } from "../context/theme-context";
+import { resolveMediaUrl } from "../utils/media";
 
 const HEADER_TRANSITION_MS = 220;
 
 function Layout({ children }) {
     const { user, logout } = useAuth();
-    const { activeTheme, toggleTheme } = useTheme();
+    const { activeTheme, audioQuality, setAudioQuality, toggleTheme } = useTheme();
     const navigate = useNavigate();
     const lastScrollY = useRef(0);
     const animationLock = useRef(false);
     const animationTimeout = useRef(null);
+    const settingsRef = useRef(null);
     const [collapsed, setCollapsed] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     function handleLogout() {
         logout();
@@ -73,6 +76,20 @@ function Layout({ children }) {
         };
     }, [collapsed]);
 
+    useEffect(() => {
+        function handleDocumentClick(event) {
+            if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+                setSettingsOpen(false);
+            }
+        }
+
+        document.addEventListener("mousedown", handleDocumentClick);
+
+        return () => {
+            document.removeEventListener("mousedown", handleDocumentClick);
+        };
+    }, []);
+
     return (
         <div className="app-shell">
             <header className={`site-header ${collapsed ? "site-header--collapsed" : ""}`}>
@@ -93,33 +110,6 @@ function Layout({ children }) {
                         </NavLink>
 
                         <NavLink
-                            to="/following"
-                            className={({ isActive }) =>
-                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
-                            }
-                        >
-                            Following
-                        </NavLink>
-
-                        <NavLink
-                            to="/messages"
-                            className={({ isActive }) =>
-                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
-                            }
-                        >
-                            Messages
-                        </NavLink>
-
-                        <NavLink
-                            to="/images"
-                            className={({ isActive }) =>
-                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
-                            }
-                        >
-                            Grid
-                        </NavLink>
-
-                        <NavLink
                             to="/videos"
                             className={({ isActive }) =>
                                 `navbar__link ${isActive ? "navbar__link--active" : ""}`
@@ -134,45 +124,72 @@ function Layout({ children }) {
                                 `navbar__link ${isActive ? "navbar__link--active" : ""}`
                             }
                         >
-                            Audio
+                            Music
                         </NavLink>
 
                         <NavLink
-                            to="/tracks"
+                            to="/messages"
                             className={({ isActive }) =>
                                 `navbar__link ${isActive ? "navbar__link--active" : ""}`
                             }
                         >
-                            Tracks
+                            Messages
                         </NavLink>
-
-                        {user?.id && (
-                            <NavLink
-                                to={`/users/${user.id}`}
-                                className={({ isActive }) =>
-                                    `navbar__link ${isActive ? "navbar__link--active" : ""}`
-                                }
-                            >
-                                Profile
-                            </NavLink>
-                        )}
                     </nav>
 
                     <div className="header-user">
-                        <span className="header-user__name">
-                            {user?.display_name || user?.username || "User"}
-                        </span>
-                        {typeof user?.wallet_balance === "number" && (
-                            <span className="header-user__wallet">
-                                Wallet: {user.wallet_balance}
-                            </span>
+                        {user?.id && (
+                            <Link className="header-user__profile" to={`/users/${user.id}`}>
+                                <span className="header-user__name">
+                                    {user?.display_name || user?.username || "User"}
+                                </span>
+                                <img
+                                    className="avatar avatar--header"
+                                    src={resolveMediaUrl(user?.avatar_url)}
+                                    alt=""
+                                />
+                            </Link>
                         )}
-                        <button className="btn btn--secondary theme-toggle" onClick={toggleTheme} type="button">
-                            {activeTheme === "dark" ? "Dark" : "Light"}
-                        </button>
-                        <button className="btn btn--secondary" onClick={handleLogout}>
-                            Logout
-                        </button>
+
+                        <div className="settings-menu" ref={settingsRef}>
+                            <button
+                                className="settings-menu__trigger"
+                                type="button"
+                                onClick={() => setSettingsOpen((current) => !current)}
+                                aria-label="Settings"
+                                aria-expanded={settingsOpen}
+                            >
+                                &#9881;
+                            </button>
+
+                            {settingsOpen && (
+                                <div className="settings-menu__panel">
+                                    <button className="settings-menu__item" onClick={toggleTheme} type="button">
+                                        Theme: {activeTheme === "dark" ? "Dark" : "Light"}
+                                    </button>
+                                    <div className="settings-menu__wallet">
+                                        <span>Wallet</span>
+                                        <strong>{typeof user?.wallet_balance === "number" ? user.wallet_balance : 0}</strong>
+                                    </div>
+                                    <label className="settings-menu__field">
+                                        <span>Music quality</span>
+                                        <select
+                                            value={audioQuality}
+                                            onChange={(event) => setAudioQuality(event.target.value)}
+                                        >
+                                            <option value="auto">Auto</option>
+                                            <option value="96000">96 kbps</option>
+                                            <option value="128000">128 kbps</option>
+                                            <option value="192000">192 kbps</option>
+                                            <option value="320000">320 kbps</option>
+                                        </select>
+                                    </label>
+                                    <button className="settings-menu__item settings-menu__item--danger" onClick={handleLogout} type="button">
+                                        Log out
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </header>

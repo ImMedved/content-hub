@@ -241,21 +241,32 @@ function normalizeImageUploadItem(item, index) {
 
 async function createImagePosts(userId, data) {
     const rawImages = Array.isArray(data?.images) ? data.images : [];
+    const uploadMode = ["none", "each", "single"].includes(String(data?.uploadMode || ""))
+        ? String(data.uploadMode)
+        : "none";
 
     if (rawImages.length === 0) {
         throw new Error("Select at least one image");
     }
 
+    if (uploadMode === "single" && rawImages.length > 9) {
+        throw new Error("A single post can contain up to 9 images");
+    }
+
     const created = [];
+    const postImageUrls = [];
+    const postTags = new Set();
 
     for (let index = 0; index < rawImages.length; index += 1) {
         const item = normalizeImageUploadItem(rawImages[index], index);
+        item.tags.forEach((tag) => postTags.add(tag));
         const originalKey = minioStorageService.buildObjectKey("originals", item.filename, item.parsed.extension);
         const originalObject = await minioStorageService.putObject({
             key: originalKey,
             buffer: item.parsed.buffer,
             contentType: item.parsed.mimeType
         });
+        postImageUrls.push(originalObject.url);
         const postId = await postRepo.createImagePost(userId, {
             title: item.title,
             description: item.description || "",
@@ -271,7 +282,8 @@ async function createImagePosts(userId, data) {
             analysisStatus: "queued",
             analysisPayload: null,
             ocrText: null,
-            caption: null
+            caption: null,
+            status: uploadMode === "each" ? "published" : "media_only"
         });
 
         await postRepo.updateImagePostMedia(postId, {
@@ -283,6 +295,19 @@ async function createImagePosts(userId, data) {
         await tagCacheService.addTags(item.tags);
         await imageQueueService.enqueueImageProcessing(postId);
         created.push({ postId, tags: item.tags, processingStatus: "queued", analysisStatus: "queued" });
+    }
+
+    if (uploadMode === "single") {
+        const postId = await postRepo.createMultiImagePost(userId, {
+            title: rawImages[0]?.title || "Image post",
+            description: "",
+            previewUrl: postImageUrls[0] || null,
+            imageUrls: postImageUrls
+        });
+        const tags = [...postTags];
+        await postRepo.syncTags(postId, tags);
+        await tagCacheService.addTags(tags);
+        created.push({ postId, tags, postMode: "single" });
     }
 
     await invalidateImageCaches(userId);
@@ -346,19 +371,28 @@ async function createVideoPost(userId, data) {
     });
     console.log(`[video-upload] stored original userId=${userId} key=${originalObject.key}`);
     const hlsStoragePrefix = `media/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const { postId, mediaId } = await postRepo.createVideoPost(userId, {
-        title: item.title,
-        description: item.description,
-        originalUrl: originalObject.url,
-        originalStorageKey: originalObject.key,
-        hlsStoragePrefix,
-        access: item.access
-    });
+    const uploadAsPost = data?.uploadAsPost !== false;
+    const { postId = null, mediaId } = uploadAsPost
+        ? await postRepo.createVideoPost(userId, {
+            title: item.title,
+            description: item.description,
+            originalUrl: originalObject.url,
+            originalStorageKey: originalObject.key,
+            hlsStoragePrefix,
+            access: item.access
+        })
+        : await postRepo.createStandaloneVideoAsset(userId, {
+            originalUrl: originalObject.url,
+            originalStorageKey: originalObject.key,
+            hlsStoragePrefix
+        });
     console.log(`[video-upload] created post/media postId=${postId} mediaId=${mediaId} hlsPrefix=${hlsStoragePrefix}`);
 
-    await postRepo.syncTags(postId, item.tags);
-    await tagCacheService.addTags(item.tags);
-    await invalidateAuthorFeeds(userId);
+    if (uploadAsPost) {
+        await postRepo.syncTags(postId, item.tags);
+        await tagCacheService.addTags(item.tags);
+        await invalidateAuthorFeeds(userId);
+    }
 
     videoProcessingService.processVideoInBackground({
         mediaId,
@@ -370,6 +404,7 @@ async function createVideoPost(userId, data) {
     return {
         postId,
         mediaId,
+        uploadAsPost,
         processingStatus: "queued"
     };
 }
@@ -385,19 +420,28 @@ async function createAudioPost(userId, data) {
     });
     console.log(`[audio-upload] stored original userId=${userId} key=${originalObject.key}`);
     const hlsStoragePrefix = `media/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const { postId, mediaId } = await postRepo.createAudioPost(userId, {
-        title: item.title,
-        description: item.description,
-        originalUrl: originalObject.url,
-        originalStorageKey: originalObject.key,
-        hlsStoragePrefix,
-        access: item.access
-    });
+    const uploadAsPost = data?.uploadAsPost !== false;
+    const { postId = null, mediaId } = uploadAsPost
+        ? await postRepo.createAudioPost(userId, {
+            title: item.title,
+            description: item.description,
+            originalUrl: originalObject.url,
+            originalStorageKey: originalObject.key,
+            hlsStoragePrefix,
+            access: item.access
+        })
+        : await postRepo.createStandaloneAudioAsset(userId, {
+            originalUrl: originalObject.url,
+            originalStorageKey: originalObject.key,
+            hlsStoragePrefix
+        });
     console.log(`[audio-upload] created post/media postId=${postId} mediaId=${mediaId} hlsPrefix=${hlsStoragePrefix}`);
 
-    await postRepo.syncTags(postId, item.tags);
-    await tagCacheService.addTags(item.tags);
-    await invalidateAuthorFeeds(userId);
+    if (uploadAsPost) {
+        await postRepo.syncTags(postId, item.tags);
+        await tagCacheService.addTags(item.tags);
+        await invalidateAuthorFeeds(userId);
+    }
 
     audioProcessingService.processAudioInBackground({
         mediaId,
@@ -409,6 +453,7 @@ async function createAudioPost(userId, data) {
     return {
         postId,
         mediaId,
+        uploadAsPost,
         processingStatus: "queued"
     };
 }

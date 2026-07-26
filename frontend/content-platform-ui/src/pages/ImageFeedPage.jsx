@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { getImages } from "../api/post";
+import { getImages, getPosts } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import EmptyState from "../components/EmptyState";
 import ImageGrid from "../components/ImageGrid";
@@ -23,11 +22,22 @@ function ImageFeedPage() {
         setError("");
 
         try {
-            const data = await getImages({
-                scope: mode,
-                limit
-            });
-            setImages(Array.isArray(data) ? data : []);
+            const [imageData, videoData] = await Promise.all([
+                getImages({
+                    scope: mode,
+                    limit
+                }),
+                getPosts({
+                    postKind: "video",
+                    limit,
+                    sort: "new",
+                    scope: mode
+                })
+            ]);
+            const merged = [...(Array.isArray(imageData) ? imageData : []), ...(Array.isArray(videoData) ? videoData : [])]
+                .sort((left, right) => new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime());
+
+            setImages(merged);
         } catch (err) {
             setError(getApiErrorMessage(err));
             setImages([]);
@@ -66,7 +76,7 @@ function ImageFeedPage() {
         <div className="page-stack">
             <div className="page-heading">
                 <div>
-                    <h1 className="page-title">{mode === "following" ? "Following grid" : "All images"}</h1>
+                    <h1 className="page-title">{mode === "following" ? "Following grid" : "Grid"}</h1>
                 </div>
                 <div className="page-actions">
                     <button className="btn btn--secondary" type="button" onClick={handleRefresh}>
@@ -75,44 +85,26 @@ function ImageFeedPage() {
                 </div>
             </div>
 
-            <div className="feed-content-tabs">
-                <Link className="feed-content-tabs__item" to="/">
-                    Posts
-                </Link>
-                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/images">
-                    Images
-                </Link>
-                <Link className="feed-content-tabs__item" to="/videos">
-                    Videos
-                </Link>
-                <Link className="feed-content-tabs__item" to="/audio">
-                    Audio
-                </Link>
-                <Link className="feed-content-tabs__item" to="/tracks">
-                    Tracks
-                </Link>
-            </div>
-
             <div className="feed-toolbar card">
                 <div className="card__body feed-toolbar__body feed-toolbar__body--compact">
                     <label className="field">
                         <span className="field__label">Mode</span>
                         <select className="field__select" value={mode} onChange={(event) => setMode(event.target.value)}>
                             <option value="following">Following</option>
-                            <option value="all">All images</option>
+                            <option value="all">All media</option>
                         </select>
                     </label>
                 </div>
             </div>
 
-            {loading && <EmptyState>Loading image grid...</EmptyState>}
+            {loading && <EmptyState>Loading grid...</EmptyState>}
             {error && <EmptyState>{error}</EmptyState>}
             {!loading && !error && (
                 <>
                     <ImageGrid
                         images={images}
                         onOpen={setSelectedImage}
-                        emptyText={mode === "following" ? "No images from followed users yet." : "No images yet."}
+                        emptyText={mode === "following" ? "No media from followed users yet." : "No media yet."}
                     />
 
                     {mode === "all" && images.length >= limit && (

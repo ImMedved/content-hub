@@ -30,8 +30,22 @@ async function getReactions(postId) {
     return rows;
 }
 
+async function getUserReaction(postId, userId) {
+    if (!userId) {
+        return null;
+    }
+
+    const [[row]] = await db.query(
+        "SELECT type FROM reaction WHERE post_id = ? AND user_id = ?",
+        [postId, userId]
+    );
+
+    return row?.type || null;
+}
+
 module.exports = {
     addReaction,
     removeReaction,
-    getReactions
+    getReactions,
+    getUserReaction
 };

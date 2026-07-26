@@ -30,7 +30,7 @@ async function createImagePost(authorId, imageData) {
                 imageData.title,
                 imageData.description || "",
                 imageData.feedThumbnailUrl || imageData.thumbnailUrl || null,
-                "published"
+                imageData.status || "published"
             ]
         );
         const postId = res.insertId;
@@ -77,6 +77,47 @@ async function createImagePost(authorId, imageData) {
                 imageData.caption || null
             ]
         );
+
+        await connection.query(
+            "INSERT INTO post_access (post_id, access_type, price) VALUES (?, 'free', 0)",
+            [postId]
+        );
+
+        await connection.commit();
+        return postId;
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
+async function createMultiImagePost(authorId, postData) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [postResult] = await connection.query(
+            `INSERT INTO post (author_id, post_kind, title, description, preview_url, status)
+             VALUES (?, 'post', ?, ?, ?, 'published') RETURNING id`,
+            [
+                authorId,
+                postData.title,
+                postData.description || "",
+                postData.previewUrl || null
+            ]
+        );
+        const postId = postResult.insertId;
+
+        for (const imageUrl of postData.imageUrls || []) {
+            await connection.query(
+                `INSERT INTO post_content (post_id, content_type, content_url, text_content)
+                 VALUES (?, 'image', ?, NULL)`,
+                [postId, imageUrl]
+            );
+        }
 
         await connection.query(
             "INSERT INTO post_access (post_id, access_type, price) VALUES (?, 'free', 0)",
@@ -160,6 +201,48 @@ async function createVideoPost(authorId, videoData) {
     }
 }
 
+async function createStandaloneVideoAsset(authorId, videoData) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [mediaRows] = await connection.query(
+            `WITH inserted AS (
+                INSERT INTO media_asset (
+                    owner_id,
+                    original_url,
+                    original_storage_key,
+                    hls_storage_prefix,
+                    status
+                 ) VALUES (?, ?, ?, ?, 'uploaded') RETURNING id
+             )
+             SELECT id FROM inserted`,
+            [
+                authorId,
+                videoData.originalUrl,
+                videoData.originalStorageKey,
+                videoData.hlsStoragePrefix
+            ]
+        );
+        const mediaId = mediaRows[0]?.id;
+
+        await connection.query(
+            `INSERT INTO media_job (media_id, type, status, priority)
+             VALUES (?, 'VIDEO_HLS_TRANSCODE', 'queued', 900)`,
+            [mediaId]
+        );
+
+        await connection.commit();
+        return { mediaId };
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
 async function createAudioPost(authorId, audioData) {
     const connection = await db.getConnection();
 
@@ -220,6 +303,49 @@ async function createAudioPost(authorId, audioData) {
 
         await connection.commit();
         return { postId, mediaId };
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
+}
+
+async function createStandaloneAudioAsset(authorId, audioData) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [mediaRows] = await connection.query(
+            `WITH inserted AS (
+                INSERT INTO media_asset (
+                    owner_id,
+                    media_type,
+                    original_url,
+                    original_storage_key,
+                    hls_storage_prefix,
+                    status
+                 ) VALUES (?, 'audio', ?, ?, ?, 'uploaded') RETURNING id
+             )
+             SELECT id FROM inserted`,
+            [
+                authorId,
+                audioData.originalUrl,
+                audioData.originalStorageKey,
+                audioData.hlsStoragePrefix
+            ]
+        );
+        const mediaId = mediaRows[0]?.id;
+
+        await connection.query(
+            `INSERT INTO media_job (media_id, type, status, priority)
+             VALUES (?, 'AUDIO_HLS_TRANSCODE', 'queued', 880)`,
+            [mediaId]
+        );
+
+        await connection.commit();
+        return { mediaId };
     } catch (err) {
         await connection.rollback();
         throw err;
@@ -788,7 +914,8 @@ async function listPosts(
     includeTags = [],
     excludeTags = [],
     postKind = null,
-    followedByUserId = null
+    followedByUserId = null,
+    includeMediaOnly = false
 ) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
     const safeOffset = Math.max(0, Number(offset) || 0);
@@ -812,6 +939,10 @@ async function listPosts(
     `;
     const params = [];
     const conditions = [];
+
+    if (!includeMediaOnly) {
+        conditions.push("p.status = 'published'");
+    }
 
     if (tag) {
         conditions.push(`EXISTS (
@@ -932,7 +1063,8 @@ async function listImages({ limit = 40, offset = 0, authorId = null, followedByU
         [],
         [],
         "image",
-        followedByUserId
+        followedByUserId,
+        true
     );
 }
 
@@ -1049,8 +1181,11 @@ async function pinPost(postId, authorId) {
 module.exports = {
     createPost,
     createImagePost,
+    createMultiImagePost,
     createAudioPost,
     createVideoPost,
+    createStandaloneAudioAsset,
+    createStandaloneVideoAsset,
     getImageAssetByPostId,
     updateImageAssetProcessing,
     updateImagePostMedia,

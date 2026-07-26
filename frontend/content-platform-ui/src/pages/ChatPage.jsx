@@ -206,7 +206,7 @@ function ChatPage() {
         if (message.message_kind === "audio" && source) {
             return (
                 <div className="chat-bubble__media chat-bubble__media--audio">
-                    <LazyHlsAudio src={source} mediaId={mediaId} />
+                    <LazyHlsAudio src={source} mediaId={mediaId} showProcessingDetails={false} />
                 </div>
             );
         }
@@ -214,7 +214,7 @@ function ChatPage() {
         if (message.message_kind === "video" && source) {
             return (
                 <div className="chat-bubble__media chat-bubble__media--video">
-                    <LazyHlsVideo src={source} mediaId={mediaId} />
+                    <LazyHlsVideo src={source} mediaId={mediaId} showProcessingDetails={false} />
                 </div>
             );
         }

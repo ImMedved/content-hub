@@ -31,6 +31,7 @@ function PostCard({
     const location = useLocation();
     const [postOverride, setPostOverride] = useState(null);
     const [reactions, setReactions] = useState([]);
+    const [viewerReaction, setViewerReaction] = useState(null);
     const [reactionUsers, setReactionUsers] = useState([]);
     const [reactionLoading, setReactionLoading] = useState(false);
     const [purchaseLoading, setPurchaseLoading] = useState(false);
@@ -39,6 +40,7 @@ function PostCard({
     const [reactionError, setReactionError] = useState("");
     const [purchaseError, setPurchaseError] = useState("");
     const [showLikers, setShowLikers] = useState(false);
+    const [linkCopied, setLinkCopied] = useState(false);
     const { elementRef, isVisible } = useRevealOnScroll(animateOnScroll);
 
     const currentPost = postOverride?.id === post?.id ? postOverride : post;
@@ -56,11 +58,18 @@ function PostCard({
     const loadReactions = useCallback(async () => {
         try {
             const response = await getReactions(postId);
-            setReactions(Array.isArray(response) ? response : []);
+            if (Array.isArray(response)) {
+                setReactions(response);
+                setViewerReaction(null);
+            } else {
+                setReactions(Array.isArray(response?.reactions) ? response.reactions : []);
+                setViewerReaction(response?.viewerReaction || null);
+            }
             setReactionError("");
         } catch (err) {
             setReactionError(getApiErrorMessage(err));
             setReactions([]);
+            setViewerReaction(null);
         }
     }, [postId]);
 
@@ -93,7 +102,12 @@ function PostCard({
 
     async function handleCopyPostLink() {
         await navigator.clipboard.writeText(`${window.location.origin}/posts/${currentPost.id}`);
+        setLinkCopied(true);
         showToast("Post link copied", "success");
+
+        setTimeout(() => {
+            setLinkCopied(false);
+        }, 2000);
     }
 
     async function handleCopyTag(tag) {
@@ -106,25 +120,11 @@ function PostCard({
         setReactionError("");
 
         try {
-            await addReaction(currentPost.id);
-            await loadReactions();
-
-            if (showLikers) {
-                await loadReactionUsers();
+            if (viewerReaction === "like") {
+                await removeReaction(currentPost.id);
+            } else {
+                await addReaction(currentPost.id);
             }
-        } catch (err) {
-            setReactionError(getApiErrorMessage(err));
-        } finally {
-            setReactionLoading(false);
-        }
-    }
-
-    async function handleRemoveReaction() {
-        setReactionLoading(true);
-        setReactionError("");
-
-        try {
-            await removeReaction(currentPost.id);
             await loadReactions();
 
             if (showLikers) {
@@ -218,14 +218,14 @@ function PostCard({
         }
     }
 
-    function renderContentItem(item) {
+    function renderSingleMediaItem(item, dense = false) {
         const itemType = item.content_type || item.type;
         const textValue = item.text_content || (itemType === "text" ? item.value : "");
         const mediaUrl = item.content_url || (itemType !== "text" ? item.value : "");
         const key = item.id || `${itemType}-${mediaUrl || textValue}`;
 
         if (itemType === "image" && mediaUrl) {
-            const mediaClassName = `post-card__media${
+            const mediaClassName = `${dense ? "post-card__grid-media" : "post-card__media"}${
                 currentPost?.post_kind === "image" && showOpenButton ? " post-card__media--feed-image" : ""
             }`;
             return (
@@ -237,7 +237,7 @@ function PostCard({
 
         if (itemType === "video" && mediaUrl) {
             return (
-                <div key={key} className="post-card__media">
+                <div key={key} className={dense ? "post-card__grid-media" : "post-card__media"}>
                     <LazyHlsVideo
                         src={mediaUrl}
                         mediaId={item.media_id || item.media_asset_id || item.mediaId || ""}
@@ -265,6 +265,32 @@ function PostCard({
         return null;
     }
 
+    function renderContentItems() {
+        const contentItems = Array.isArray(currentPost.content) ? currentPost.content : [];
+        const imageItems = contentItems.filter((item) => (item.content_type || item.type) === "image");
+        const otherItems = contentItems.filter((item) => (item.content_type || item.type) !== "image");
+        const renderedItems = otherItems.map((item) => renderSingleMediaItem(item)).filter(Boolean);
+
+        if (imageItems.length > 1) {
+            renderedItems.push(
+                <div className="post-card__media-grid" key="media-grid">
+                    {imageItems.slice(0, 9).map((item) => renderSingleMediaItem(item, true))}
+                </div>
+            );
+        } else if (imageItems.length === 1) {
+            renderedItems.push(renderSingleMediaItem(imageItems[0]));
+        }
+
+        return renderedItems;
+    }
+
+    const totalReactions = reactions.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const shareIcon = (
+        <svg className="icon-button__svg" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 8a3 3 0 1 0-2.72-4.27L8.91 7.04a3 3 0 1 0 0 1.92l6.37 3.31A3 3 0 1 0 16.2 10.5L9.82 7.19l6.37-3.31A3 3 0 0 0 18 8Z" />
+        </svg>
+    );
+
     return (
         <article
             ref={elementRef}
@@ -291,7 +317,7 @@ function PostCard({
                             alt=""
                         />
 
-                        <div>
+                        <div className="post-card__identity-body">
                             <div className="post-card__title-inline">
                                 <h2 className="post-card__title">
                                     <Link to={`/posts/${currentPost.id}`} state={postLinkState}>
@@ -307,18 +333,44 @@ function PostCard({
                                 )}
                             </div>
 
-                            {currentPost.author_id && (
-                                <Link className="post-card__author-link" to={`/users/${currentPost.author_id}`}>
-                                    {currentPost.authorName || currentPost.author_username || `User #${currentPost.author_id}`}
-                                </Link>
-                            )}
+                            <div className="post-card__byline">
+                                {currentPost.author_id && (
+                                    <Link className="post-card__author-link" to={`/users/${currentPost.author_id}`}>
+                                        {currentPost.authorName || currentPost.author_username || `User #${currentPost.author_id}`}
+                                    </Link>
+                                )}
+                                {currentPost.created_at && (
+                                    <span>{new Date(currentPost.created_at).toLocaleString()}</span>
+                                )}
+                            </div>
                         </div>
+                    </div>
+
+                    <div className="post-card__corner-actions">
+                        {canViewContent && (
+                            <button
+                                className={`icon-button post-card__like ${viewerReaction === "like" ? "post-card__like--active" : ""}`}
+                                type="button"
+                                onClick={handleLike}
+                                disabled={reactionLoading || !currentPost?.id}
+                                aria-label={viewerReaction === "like" ? "Remove like" : "Like"}
+                            >
+                                &#9829;
+                            </button>
+                        )}
+                        <button
+                            className={`icon-button post-card__share ${linkCopied ? "post-card__share--copied" : ""}`}
+                            type="button"
+                            onClick={handleCopyPostLink}
+                            aria-label="Copy post link"
+                        >
+                            {linkCopied ? "\u2713" : shareIcon}
+                        </button>
                     </div>
                 </div>
 
                 <div className="post-card__meta">
-                    <span>{currentPost.created_at ? new Date(currentPost.created_at).toLocaleString() : ""}</span>
-                    {currentPost.access_type && <span>Access: {currentPost.access_type}</span>}
+                    {currentPost.access_type === "paid" && <span>Access: paid</span>}
                     {typeof currentPost.price === "number" && currentPost.access_type === "paid" && (
                         <span>Price: {currentPost.price}</span>
                     )}
@@ -339,7 +391,7 @@ function PostCard({
                 {canViewContent ? (
                     <div className="post-card__content-items">
                         {Array.isArray(currentPost.content) && currentPost.content.length > 0
-                            ? currentPost.content.map(renderContentItem)
+                            ? renderContentItems()
                             : <p>Post content is empty.</p>}
                     </div>
                 ) : (
@@ -350,27 +402,7 @@ function PostCard({
             </div>
 
             <div className="post-card__actions">
-                {canViewContent ? (
-                    <>
-                        <button
-                            className="btn btn--secondary"
-                            type="button"
-                            onClick={handleLike}
-                            disabled={reactionLoading || !currentPost?.id}
-                        >
-                            Like
-                        </button>
-
-                        <button
-                            className="btn btn--secondary"
-                            type="button"
-                            onClick={handleRemoveReaction}
-                            disabled={reactionLoading || !currentPost?.id}
-                        >
-                            Remove reaction
-                        </button>
-                    </>
-                ) : (
+                {!canViewContent && (
                     <button
                         className="btn btn--primary"
                         type="button"
@@ -380,16 +412,6 @@ function PostCard({
                         {purchaseLoading ? "Purchasing..." : `Buy for ${currentPost.price}`}
                     </button>
                 )}
-
-                {showOpenButton && (
-                    <Link className="btn btn--secondary" to={`/posts/${currentPost.id}`} state={postLinkState}>
-                        Open post
-                    </Link>
-                )}
-
-                <button className="btn btn--secondary" type="button" onClick={handleCopyPostLink}>
-                    Copy link
-                </button>
 
                 {canManagePost && (
                     <>
@@ -415,46 +437,51 @@ function PostCard({
                     </>
                 )}
 
-                {isAuthor && canViewContent && (
-                    <button className="btn btn--secondary" type="button" onClick={handleToggleLikers}>
-                        {showLikers ? "Hide likers" : "View likers"}
+                {canViewContent && (
+                    <button className="post-card__stats" type="button" onClick={handleToggleLikers}>
+                        Reactions: {totalReactions}
                     </button>
                 )}
-
-                <div className="post-card__stats">
-                    {reactions.length > 0
-                        ? reactions.map((item) => `${item.type}: ${item.count}`).join(" | ")
-                        : "No reactions yet"}
-                </div>
             </div>
 
             {purchaseError && <div className="post-card__message muted-box">{purchaseError}</div>}
             {reactionError && <div className="post-card__message muted-box">{reactionError}</div>}
 
             {showLikers && (
-                <div className="post-card__likers">
-                    {likersLoading && <div className="muted-box">Loading likers...</div>}
+                <div className="feed-modal-backdrop" onClick={() => setShowLikers(false)} role="presentation">
+                    <div className="feed-modal card post-card__likers-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+                        <div className="card__body feed-modal__body">
+                            <div className="page-heading">
+                                <h2 className="page-title page-title--section">Reactions</h2>
+                                <button className="btn btn--secondary" type="button" onClick={() => setShowLikers(false)}>
+                                    Close
+                                </button>
+                            </div>
 
-                    {!likersLoading && reactionUsers.length === 0 && (
-                        <div className="muted-box">No likes yet.</div>
-                    )}
+                            {likersLoading && <div className="muted-box">Loading likers...</div>}
 
-                    <div className="user-grid user-grid--compact">
-                        {reactionUsers.map((item) => (
-                            <Link key={`${item.id}-${item.created_at}`} className="user-card" to={`/users/${item.id}`}>
-                                <img
-                                    className="avatar avatar--sm"
-                                    src={resolveMediaUrl(item.avatar_url)}
-                                    alt=""
-                                />
-                                <div>
-                                    <div className="user-card__name">
-                                        {item.display_name || item.username}
-                                    </div>
-                                    <div className="user-card__meta">@{item.username}</div>
-                                </div>
-                            </Link>
-                        ))}
+                            {!likersLoading && reactionUsers.length === 0 && (
+                                <div className="muted-box">No likes yet.</div>
+                            )}
+
+                            <div className="user-grid user-grid--compact">
+                                {reactionUsers.map((item) => (
+                                    <Link key={`${item.id}-${item.created_at}`} className="user-card" to={`/users/${item.id}`}>
+                                        <img
+                                            className="avatar avatar--sm"
+                                            src={resolveMediaUrl(item.avatar_url)}
+                                            alt=""
+                                        />
+                                        <div>
+                                            <div className="user-card__name">
+                                                {item.display_name || item.username}
+                                            </div>
+                                            <div className="user-card__meta">@{item.username}</div>
+                                        </div>
+                                    </Link>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

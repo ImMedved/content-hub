@@ -29,7 +29,12 @@ async function removeReaction(req, res) {
 
 async function getReactions(req, res) {
     try {
-        const data = await reactionService.getReactions(req.params.postId);
+        const includeViewer = String(req.query.includeViewer || "").toLowerCase() === "true";
+        const data = await reactionService.getReactions(
+            req.params.postId,
+            includeViewer ? req.user?.userId || null : null,
+            includeViewer
+        );
         ok(res, data);
     } catch (err) {
         fail(res, 500, err.message);

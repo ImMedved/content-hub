@@ -4,6 +4,7 @@ export function createPostFormState(initialValues = {}) {
         description: initialValues.description || "",
         text: initialValues.text || "",
         imageUrl: initialValues.imageUrl || "",
+        imageFiles: [],
         imageFile: null,
         tagsInput: initialValues.tagsInput || "",
         accessType: initialValues.accessType || "free",
@@ -43,10 +44,16 @@ export async function buildPostPayload(form) {
         content.push({ type: "text", value: form.text.trim() });
     }
 
-    if (form.imageFile) {
-        const dataUrl = await readFileAsDataUrl(form.imageFile);
+    const imageFiles = Array.isArray(form.imageFiles) && form.imageFiles.length > 0
+        ? form.imageFiles
+        : form.imageFile ? [form.imageFile] : [];
+
+    for (const imageFile of imageFiles.slice(0, 9)) {
+        const dataUrl = await readFileAsDataUrl(imageFile);
         content.push({ type: "image", value: dataUrl });
-    } else if (form.imageUrl.trim()) {
+    }
+
+    if (imageFiles.length === 0 && form.imageUrl.trim()) {
         content.push({ type: "image", value: form.imageUrl.trim() });
     }
 

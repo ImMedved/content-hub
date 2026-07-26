@@ -21,7 +21,8 @@ function LazyHlsVideo({
     src,
     mediaId = "",
     posterUrl = "",
-    autoPlay = false
+    autoPlay = false,
+    showProcessingDetails = true
 }) {
     const rootRef = useRef(null);
     const [shouldLoad, setShouldLoad] = useState(false);
@@ -108,10 +109,10 @@ function LazyHlsVideo({
                         onStatusChange={setStatus}
                         onError={setError}
                     />
-                    {(error || details) && (
+                    {(error || (showProcessingDetails && details)) && (
                         <div className="hls-video__diagnostics">
                             {error && <div>{error}</div>}
-                            {details && <div>{details}</div>}
+                            {showProcessingDetails && details && <div>{details}</div>}
                         </div>
                     )}
                 </>
@@ -129,7 +130,7 @@ function LazyHlsVideo({
                     <div className="hls-video__placeholder-title">
                         {error || (status ? `Video status: ${status}` : "Preparing video...")}
                     </div>
-                    {details && (
+                    {showProcessingDetails && details && (
                         <div className="hls-video__placeholder-details">
                             {details}
                         </div>

@@ -30,6 +30,7 @@ function ImageUploadModal({ files, onClose, onSubmit, submitting = false }) {
     const activeItem = items[activeIndex] || null;
     const isBatch = items.length > 1;
     const progressLabel = isBatch ? `${activeIndex + 1} / ${items.length}` : "1 image";
+    const canCreateSinglePost = items.length <= 9;
 
     const canGoPrevious = activeIndex > 0;
     const canGoNext = activeIndex < items.length - 1;
@@ -56,34 +57,9 @@ function ImageUploadModal({ files, onClose, onSubmit, submitting = false }) {
         );
     }
 
-    function removeUploadedIndex(indexToRemove) {
-        setItems((current) => {
-            const nextItems = current.filter((_, index) => index !== indexToRemove);
-
-            if (nextItems.length === 0) {
-                setTimeout(onClose, 0);
-                return [];
-            }
-
-            setActiveIndex((currentIndex) => Math.min(currentIndex, nextItems.length - 1));
-            return nextItems;
-        });
-    }
-
-    async function handleUploadCurrent() {
-        if (!activeItem) {
-            return;
-        }
-
-        const uploadedIndex = activeIndex;
-        const images = await buildUploadPayload([activeItem]);
-        await onSubmit(images, { background: false });
-        removeUploadedIndex(uploadedIndex);
-    }
-
-    async function handleUploadAll() {
+    async function handleUploadAll(uploadMode) {
         const images = await buildUploadPayload(items);
-        onSubmit(images, { background: true });
+        onSubmit(images, { background: true, uploadMode });
         onClose();
     }
 
@@ -167,12 +143,15 @@ function ImageUploadModal({ files, onClose, onSubmit, submitting = false }) {
                                             </button>
                                         </>
                                     )}
-                                    <button className="btn btn--primary" type="button" onClick={handleUploadCurrent} disabled={submitting}>
-                                        {submitting ? "Uploading..." : isBatch ? "Upload current" : "Upload"}
+                                    <button className="btn btn--primary" type="button" onClick={() => handleUploadAll("none")} disabled={submitting}>
+                                        {submitting ? "Uploading..." : "Upload without posts"}
                                     </button>
-                                    {isBatch && (
-                                        <button className="btn btn--secondary" type="button" onClick={handleUploadAll} disabled={submitting}>
-                                            Upload all
+                                    <button className="btn btn--secondary" type="button" onClick={() => handleUploadAll("each")} disabled={submitting}>
+                                        Post each photo
+                                    </button>
+                                    {canCreateSinglePost && (
+                                        <button className="btn btn--secondary" type="button" onClick={() => handleUploadAll("single")} disabled={submitting}>
+                                            One post with all
                                         </button>
                                     )}
                                 </div>

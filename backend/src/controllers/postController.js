@@ -60,6 +60,7 @@ async function getPost(req, res) {
 }
 async function listPosts(req, res) {
     try {
+        const scope = String(req.query.scope || "").toLowerCase();
         const data = await postService.listPosts(
             {
                 limit: req.query.limit,
@@ -70,6 +71,7 @@ async function listPosts(req, res) {
                 sort: req.query.sort,
                 accessType: req.query.accessType,
                 postKind: req.query.postKind,
+                followedByUserId: scope === "following" ? req.user?.userId || null : null,
                 includeTags: parseTagList(req.query.includeTags),
                 excludeTags: parseTagList(req.query.excludeTags)
             },

@@ -11,7 +11,9 @@ export async function addReaction(postId, type = "like") {
 }
 
 export async function getReactions(postId) {
-    const res = await client.get(`/reactions/${postId}`);
+    const res = await client.get(`/reactions/${postId}`, {
+        params: { includeViewer: true }
+    });
     return unwrapApiResponse(res);
 }
 

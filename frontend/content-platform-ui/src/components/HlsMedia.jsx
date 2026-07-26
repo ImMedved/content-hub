@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "../context/theme-context";
 import { resolveMediaUrl } from "../utils/media";
 
 function formatBitrate(value) {
@@ -39,12 +40,42 @@ function HlsMedia({
     onStatusChange = null,
     onError = null
 }) {
+    const { audioQuality } = useTheme();
     const mediaRef = useRef(null);
     const hlsRef = useRef(null);
     const [qualityLevels, setQualityLevels] = useState([]);
     const [selectedLevel, setSelectedLevel] = useState("auto");
     const [nativeMode, setNativeMode] = useState(false);
     const isVideo = mediaType === "video";
+
+    const applyPreferredAudioQuality = useCallback((hls, levels) => {
+        if (isVideo || !hls) {
+            return;
+        }
+
+        if (audioQuality === "auto") {
+            hls.currentLevel = -1;
+            return;
+        }
+
+        const preferredBitrate = Number(audioQuality);
+        const normalizedLevels = buildQualityLevels(levels || [], mediaType);
+        const candidates = normalizedLevels
+            .filter((level) => level.bitrate > 0)
+            .sort((left, right) => left.bitrate - right.bitrate);
+
+        if (candidates.length === 0) {
+            hls.currentLevel = -1;
+            return;
+        }
+
+        const matchingLevel =
+            candidates.filter((level) => level.bitrate <= preferredBitrate).at(-1) ||
+            candidates[candidates.length - 1];
+
+        hls.currentLevel = matchingLevel.index;
+        setSelectedLevel(String(matchingLevel.index));
+    }, [audioQuality, isVideo, mediaType]);
 
     useEffect(() => {
         const media = mediaRef.current;
@@ -116,6 +147,7 @@ function HlsMedia({
 
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     setQualityLevels(buildQualityLevels(hls.levels || [], mediaType));
+                    applyPreferredAudioQuality(hls, hls.levels || []);
                     reportStatus("manifest parsed");
                 });
 
@@ -173,7 +205,7 @@ function HlsMedia({
             media.removeAttribute("src");
             media.load();
         };
-    }, [isVideo, manifestUrl, mediaType, onError, onStatusChange]);
+    }, [applyPreferredAudioQuality, isVideo, manifestUrl, mediaType, onError, onStatusChange]);
 
     function handleQualityChange(event) {
         const value = event.target.value;
@@ -201,7 +233,7 @@ function HlsMedia({
                 poster={isVideo && posterUrl ? resolveMediaUrl(posterUrl) : undefined}
             />
 
-            {(qualityLevels.length > 1 || nativeMode) && (
+            {isVideo && (qualityLevels.length > 1 || nativeMode) && (
                 <label className="hls-media__quality">
                     <span>Quality</span>
                     <select

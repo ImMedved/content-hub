@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ThemeContext } from "./theme-context";
 
 const STORAGE_KEY = "content-hub-theme";
+const AUDIO_QUALITY_STORAGE_KEY = "content-hub-audio-quality";
+const AUDIO_QUALITY_OPTIONS = ["auto", "96000", "128000", "192000", "320000"];
 
 function getSystemTheme() {
     if (typeof window === "undefined") return "light";
@@ -18,8 +20,17 @@ function getInitialThemePreference() {
     return storedTheme === "light" || storedTheme === "dark" ? storedTheme : "system";
 }
 
+function getInitialAudioQuality() {
+    if (typeof window === "undefined") return "auto";
+
+    const storedValue = window.localStorage.getItem(AUDIO_QUALITY_STORAGE_KEY);
+
+    return AUDIO_QUALITY_OPTIONS.includes(storedValue) ? storedValue : "auto";
+}
+
 export function ThemeProvider({ children }) {
     const [themePreference, setThemePreference] = useState(getInitialThemePreference);
+    const [audioQuality, setAudioQuality] = useState(getInitialAudioQuality);
     const [systemTheme, setSystemTheme] = useState(getSystemTheme);
 
     const activeTheme = themePreference === "system" ? systemTheme : themePreference;
@@ -50,9 +61,16 @@ export function ThemeProvider({ children }) {
         window.localStorage.setItem(STORAGE_KEY, themePreference);
     }, [themePreference]);
 
+    useEffect(() => {
+        window.localStorage.setItem(AUDIO_QUALITY_STORAGE_KEY, audioQuality);
+    }, [audioQuality]);
+
     const value = useMemo(
         () => ({
             activeTheme,
+            audioQuality,
+            audioQualityOptions: AUDIO_QUALITY_OPTIONS,
+            setAudioQuality,
             themePreference,
             toggleTheme: () => {
                 setThemePreference((currentPreference) => {
@@ -63,7 +81,7 @@ export function ThemeProvider({ children }) {
                 });
             },
         }),
-        [activeTheme, themePreference],
+        [activeTheme, audioQuality, themePreference],
     );
 
     return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

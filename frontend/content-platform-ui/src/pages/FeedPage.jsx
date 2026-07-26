@@ -5,6 +5,8 @@ import { getPosts, getTagSuggestions } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import EmptyState from "../components/EmptyState";
 import FeedFiltersModal from "../components/FeedFiltersModal";
+import ImageGrid from "../components/ImageGrid";
+import ImageViewerModal from "../components/ImageViewerModal";
 import PostCard from "../components/PostCard";
 import ScrollToTopButton from "../components/ScrollToTopButton";
 import { useAuth } from "../context/auth-context";
@@ -70,9 +72,8 @@ function FeedPage() {
     const location = useLocation();
     const { user } = useAuth();
     const { showToast } = useToast();
-    const [mode, setMode] = useState("following");
-    const [sort, setSort] = useState("new");
-    const [accessType, setAccessType] = useState("");
+    const sort = "new";
+    const accessType = "";
     const [limit, setLimit] = useState(10);
     const [followedPosts, setFollowedPosts] = useState([]);
     const [allPosts, setAllPosts] = useState([]);
@@ -80,6 +81,8 @@ function FeedPage() {
     const [allLoading, setAllLoading] = useState(true);
     const [error, setError] = useState("");
     const [allError, setAllError] = useState("");
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [expandedGridIndexes, setExpandedGridIndexes] = useState(() => new Set());
     const [isTagModalOpen, setIsTagModalOpen] = useState(false);
     const [appliedIncludeTags, setAppliedIncludeTags] = useState([]);
     const [appliedExcludeTags, setAppliedExcludeTags] = useState([]);
@@ -315,9 +318,69 @@ function FeedPage() {
 
     function handleApplyTag(tag) {
         const normalizedTag = normalizeTag(tag);
-        setMode("all");
         setAppliedIncludeTags(normalizedTag ? [normalizedTag] : []);
         setAppliedExcludeTags([]);
+    }
+
+    function interleavePosts(followingPosts, generalPosts) {
+        const merged = [];
+        const usedIds = new Set();
+        const generalQueue = generalPosts.filter((post) => {
+            const postId = Number(post.id);
+
+            return !followingPosts.some((followingPost) => Number(followingPost.id) === postId);
+        });
+        let followingIndex = 0;
+        let generalIndex = 0;
+
+        while (followingIndex < followingPosts.length || generalIndex < generalQueue.length) {
+            for (let count = 0; count < 2 && followingIndex < followingPosts.length; count += 1) {
+                const post = followingPosts[followingIndex];
+                followingIndex += 1;
+
+                if (!usedIds.has(Number(post.id))) {
+                    merged.push(post);
+                    usedIds.add(Number(post.id));
+                }
+            }
+
+            if (generalIndex < generalQueue.length) {
+                const post = generalQueue[generalIndex];
+                generalIndex += 1;
+
+                if (!usedIds.has(Number(post.id))) {
+                    merged.push(post);
+                    usedIds.add(Number(post.id));
+                }
+            }
+
+            if (followingIndex >= followingPosts.length) {
+                while (generalIndex < generalQueue.length) {
+                    const post = generalQueue[generalIndex];
+                    generalIndex += 1;
+
+                    if (!usedIds.has(Number(post.id))) {
+                        merged.push(post);
+                        usedIds.add(Number(post.id));
+                    }
+                }
+            }
+        }
+
+        return merged;
+    }
+
+    function isGridMediaPost(post) {
+        const content = Array.isArray(post?.content) ? post.content : [];
+
+        return (
+            post?.post_kind === "image" ||
+            post?.post_kind === "video" ||
+            content.some((item) => {
+                const itemType = item.content_type || item.type;
+                return itemType === "image" || itemType === "video";
+            })
+        );
     }
 
     const visibleFollowingPosts = sortFollowingPosts(
@@ -347,14 +410,104 @@ function FeedPage() {
         )
     );
 
-    const visiblePosts = mode === "following" ? visibleFollowingPosts : visibleAllPosts;
-    const sectionTitle = mode === "following" ? "Following feed" : "All posts";
+    const visiblePosts = interleavePosts(visibleFollowingPosts, visibleAllPosts);
+    const gridMediaPosts = visibleAllPosts.filter(isGridMediaPost);
+    const selectedIndex = selectedImage ? gridMediaPosts.findIndex((item) => item.id === selectedImage.id) : -1;
+
+    function navigateSelectedImage(direction) {
+        if (selectedIndex < 0) {
+            return;
+        }
+
+        const nextIndex = selectedIndex + direction;
+        if (nextIndex >= 0 && nextIndex < gridMediaPosts.length) {
+            setSelectedImage(gridMediaPosts[nextIndex]);
+        }
+    }
+
+    function toggleGridExpansion(gridIndex) {
+        setExpandedGridIndexes((current) => {
+            const next = new Set(current);
+
+            if (next.has(gridIndex)) {
+                next.delete(gridIndex);
+            } else {
+                next.add(gridIndex);
+            }
+
+            return next;
+        });
+    }
+
+    function getGridItems(gridIndex) {
+        if (gridMediaPosts.length === 0) {
+            return [];
+        }
+
+        return Array.from({ length: Math.min(16, gridMediaPosts.length) }, (_item, offset) => {
+            const index = (gridIndex * 16 + offset) % gridMediaPosts.length;
+            return gridMediaPosts[index];
+        });
+    }
+
+    function renderFeedItems() {
+        const items = [];
+
+        visiblePosts.forEach((post, index) => {
+            items.push(
+                <PostCard
+                    key={`feed-${post.id}`}
+                    post={post}
+                    onTagApply={handleApplyTag}
+                    animateOnScroll
+                />
+            );
+
+            if ((index + 1) % 5 === 0 && gridMediaPosts.length > 0) {
+                const gridIndex = Math.floor((index + 1) / 5) - 1;
+                const gridItems = getGridItems(gridIndex);
+
+                if (gridItems.length > 0) {
+                    const isExpanded = expandedGridIndexes.has(gridIndex);
+
+                    items.push(
+                        <section className="feed-grid-insert card" key={`grid-${gridIndex}`}>
+                            <div className="feed-grid-insert__body">
+                                <ImageGrid
+                                    images={gridItems}
+                                    limit={isExpanded ? 16 : 4}
+                                    onOpen={setSelectedImage}
+                                    emptyText=""
+                                />
+                                {!isExpanded && gridItems.length > 4 && (
+                                    <button
+                                        className="feed-grid-insert__more"
+                                        type="button"
+                                        onClick={() => toggleGridExpansion(gridIndex)}
+                                    >
+                                        Show more
+                                    </button>
+                                )}
+                                {isExpanded && (
+                                    <Link className="feed-grid-insert__more" to="/images">
+                                        See more
+                                    </Link>
+                                )}
+                            </div>
+                        </section>
+                    );
+                }
+            }
+        });
+
+        return items;
+    }
 
     return (
-        <div className="page-stack">
+        <div className="page-stack feed-page">
             <div className="page-heading">
                 <div>
-                    <h1 className="page-title">{sectionTitle}</h1>
+                    <h1 className="page-title">Feed</h1>
                 </div>
 
                 <div className="page-actions">
@@ -371,58 +524,6 @@ function FeedPage() {
             </div>
 
             {location.state?.success && <EmptyState>{location.state.success}</EmptyState>}
-
-            <div className="feed-content-tabs">
-                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/">
-                    Posts
-                </Link>
-                <Link className="feed-content-tabs__item" to="/images">
-                    Images
-                </Link>
-                <Link className="feed-content-tabs__item" to="/videos">
-                    Videos
-                </Link>
-                <Link className="feed-content-tabs__item" to="/audio">
-                    Audio
-                </Link>
-                <Link className="feed-content-tabs__item" to="/tracks">
-                    Tracks
-                </Link>
-            </div>
-
-            <div className="feed-toolbar card">
-                <div className="card__body feed-toolbar__body">
-                    <label className="field">
-                        <span className="field__label">Mode</span>
-                        <select className="field__select" value={mode} onChange={(event) => setMode(event.target.value)}>
-                            <option value="following">Following</option>
-                            <option value="all">All posts</option>
-                        </select>
-                    </label>
-
-                    <label className="field">
-                        <span className="field__label">Sort</span>
-                        <select className="field__select" value={sort} onChange={(event) => setSort(event.target.value)}>
-                            <option value="new">New</option>
-                            <option value="popular">Popular</option>
-                            <option value="expensive">Expensive</option>
-                        </select>
-                    </label>
-
-                    <label className="field">
-                        <span className="field__label">Access</span>
-                        <select
-                            className="field__select"
-                            value={accessType}
-                            onChange={(event) => setAccessType(event.target.value)}
-                        >
-                            <option value="">All</option>
-                            <option value="free">Free</option>
-                            <option value="paid">Paid</option>
-                        </select>
-                    </label>
-                </div>
-            </div>
 
             {(appliedIncludeTags.length > 0 || appliedExcludeTags.length > 0 || appliedBoughtOnly || appliedAuthorQuery) && (
                 <div className="tag-filter-summary">
@@ -441,32 +542,20 @@ function FeedPage() {
                 </div>
             )}
 
-            {mode === "following" && loading && <EmptyState>Loading following feed...</EmptyState>}
-            {mode === "following" && error && <EmptyState>{error}</EmptyState>}
-            {mode === "all" && allLoading && <EmptyState>Loading posts...</EmptyState>}
-            {mode === "all" && allError && <EmptyState>{allError}</EmptyState>}
+            {loading && <EmptyState>Loading following feed...</EmptyState>}
+            {error && <EmptyState>{error}</EmptyState>}
+            {allLoading && <EmptyState>Loading posts...</EmptyState>}
+            {allError && <EmptyState>{allError}</EmptyState>}
 
             {!loading && !error && !allLoading && !allError && visiblePosts.length === 0 && (
-                <EmptyState>
-                    {mode === "following"
-                        ? "Your following feed is empty. Try following users, creating a post, or switching to all posts."
-                        : "No posts match the current filters. Try clearing filters or loading more posts."}
-                </EmptyState>
+                <EmptyState>No posts match the current filters. Try clearing filters or creating a post.</EmptyState>
             )}
 
             <div className="post-list">
-                {visiblePosts.map((post) => (
-                    <PostCard
-                        key={`${mode}-${post.id}`}
-                        post={post}
-                        onTagApply={handleApplyTag}
-                        compact={mode === "all"}
-                        animateOnScroll
-                    />
-                ))}
+                {renderFeedItems()}
             </div>
 
-            {mode === "all" && !allLoading && (
+            {!allLoading && (
                 <div className="form-actions">
                     <button
                         className="btn btn--secondary"
@@ -477,6 +566,16 @@ function FeedPage() {
                     </button>
                 </div>
             )}
+
+            <ImageViewerModal
+                image={selectedImage}
+                currentUserId={user?.id}
+                onClose={() => setSelectedImage(null)}
+                hasPrevious={selectedIndex > 0}
+                hasNext={selectedIndex >= 0 && selectedIndex < gridMediaPosts.length - 1}
+                onNavigatePrevious={() => navigateSelectedImage(-1)}
+                onNavigateNext={() => navigateSelectedImage(1)}
+            />
 
             {isTagModalOpen && (
                 <FeedFiltersModal

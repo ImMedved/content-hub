@@ -3,10 +3,16 @@ import { Link } from "react-router-dom";
 import { createAudio, getPosts } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import EmptyState from "../components/EmptyState";
-import PostCard from "../components/PostCard";
+import LazyHlsAudio from "../components/LazyHlsAudio";
 import ScrollToTopButton from "../components/ScrollToTopButton";
+import { resolveMediaUrl } from "../utils/media";
 import { useToast } from "../context/useToast";
 import { readFileAsDataUrl } from "../utils/postForm";
+
+function getAudioItem(post) {
+    const content = Array.isArray(post?.content) ? post.content : [];
+    return content.find((item) => (item.content_type || item.type) === "audio") || null;
+}
 
 function AudioFeedPage() {
     const fileInputRef = useRef(null);
@@ -14,6 +20,7 @@ function AudioFeedPage() {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [uploadAsPost, setUploadAsPost] = useState(false);
     const [error, setError] = useState("");
 
     const loadAudios = useCallback(async () => {
@@ -66,7 +73,8 @@ function AudioFeedPage() {
                 filename: file.name,
                 file: dataUrl,
                 access: { type: "free", price: 0 },
-                tags: ["audio"]
+                tags: ["audio"],
+                uploadAsPost
             });
             showToast("Audio upload started", "success");
             await loadAudios();
@@ -81,7 +89,7 @@ function AudioFeedPage() {
         <div className="page-stack">
             <div className="page-heading">
                 <div>
-                    <h1 className="page-title">Audio</h1>
+                    <h1 className="page-title">Music</h1>
                 </div>
 
                 <div className="page-actions">
@@ -100,28 +108,19 @@ function AudioFeedPage() {
                     >
                         {uploading ? "Uploading..." : "Upload audio"}
                     </button>
+                    <label className="checkbox-field checkbox-field--inline">
+                        <input
+                            type="checkbox"
+                            checked={uploadAsPost}
+                            onChange={(event) => setUploadAsPost(event.target.checked)}
+                            disabled={uploading}
+                        />
+                        <span>Upload as post</span>
+                    </label>
                     <button className="btn btn--secondary" type="button" onClick={loadAudios} disabled={loading}>
                         Refresh
                     </button>
                 </div>
-            </div>
-
-            <div className="feed-content-tabs">
-                <Link className="feed-content-tabs__item" to="/">
-                    Posts
-                </Link>
-                <Link className="feed-content-tabs__item" to="/images">
-                    Images
-                </Link>
-                <Link className="feed-content-tabs__item" to="/videos">
-                    Videos
-                </Link>
-                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/audio">
-                    Audio
-                </Link>
-                <Link className="feed-content-tabs__item" to="/tracks">
-                    Tracks
-                </Link>
             </div>
 
             {loading && <EmptyState>Loading audio...</EmptyState>}
@@ -130,10 +129,35 @@ function AudioFeedPage() {
                 <EmptyState>Upload an audio file to create the first audio post.</EmptyState>
             )}
 
-            <div className="post-list">
-                {posts.map((post) => (
-                    <PostCard key={`audio-${post.id}`} post={post} animateOnScroll />
-                ))}
+            <div className="music-list">
+                {posts.map((post) => {
+                    const audioItem = getAudioItem(post);
+                    const audioSource = audioItem?.content_url || audioItem?.value || "";
+                    const mediaId = audioItem?.media_id || audioItem?.media_asset_id || audioItem?.mediaId || "";
+
+                    return (
+                        <article key={`audio-${post.id}`} className="music-row">
+                            <Link className="music-row__avatar" to={`/users/${post.author_id}`}>
+                                <img className="avatar avatar--sm" src={resolveMediaUrl(post.author_avatar_url)} alt="" />
+                            </Link>
+                            <div className="music-row__main">
+                                <Link className="music-row__title" to={`/posts/${post.id}`}>
+                                    {post.title || `Track #${post.id}`}
+                                </Link>
+                                <Link className="music-row__author" to={`/users/${post.author_id}`}>
+                                    {post.authorName || post.author_username || `User #${post.author_id}`}
+                                </Link>
+                            </div>
+                            <div className="music-row__player">
+                                {audioSource ? (
+                                    <LazyHlsAudio src={audioSource} mediaId={mediaId} />
+                                ) : (
+                                    <div className="muted-box">Preparing audio...</div>
+                                )}
+                            </div>
+                        </article>
+                    );
+                })}
             </div>
 
             <ScrollToTopButton />

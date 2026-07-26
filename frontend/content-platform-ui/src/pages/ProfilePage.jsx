@@ -130,8 +130,8 @@ function ProfilePage() {
         }
     }
 
-    async function uploadImages(uploadItems) {
-        await createImages({ images: uploadItems });
+    async function uploadImages(uploadItems, uploadMode = "none") {
+        await createImages({ images: uploadItems, uploadMode });
         await loadProfile();
         showToast("Images uploaded", "success");
     }
@@ -141,7 +141,7 @@ function ProfilePage() {
 
         if (options.background) {
             showToast("Image upload started", "success");
-            uploadImages(uploadItems).catch((err) => {
+            uploadImages(uploadItems, options.uploadMode || "none").catch((err) => {
                 setError(getApiErrorMessage(err));
             });
             return;
@@ -150,7 +150,7 @@ function ProfilePage() {
         setUploadingImages(true);
 
         try {
-            await uploadImages(uploadItems);
+            await uploadImages(uploadItems, options.uploadMode || "none");
         } catch (err) {
             setError(getApiErrorMessage(err));
         } finally {

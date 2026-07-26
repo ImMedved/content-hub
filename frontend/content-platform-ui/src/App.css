@@ -759,6 +759,7 @@ select:focus-visible {
     width: 100%;
     aspect-ratio: 16 / 9;
     background: #05070a;
+    position: relative;
 }
 
 .hls-video__media {
@@ -773,11 +774,35 @@ select:focus-visible {
 .hls-video__placeholder {
     min-height: 220px;
     display: grid;
+    gap: 8px;
     place-items: center;
     padding: 24px;
     color: var(--muted);
     text-align: center;
     background: var(--surface-soft);
+}
+
+.hls-video__placeholder-title {
+    color: var(--text);
+}
+
+.hls-video__placeholder-details,
+.hls-video__diagnostics {
+    max-width: 100%;
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.hls-video__diagnostics {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(5, 7, 10, 0.78);
 }
 
 .post-card__actions {

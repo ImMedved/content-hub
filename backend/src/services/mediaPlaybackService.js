@@ -36,6 +36,21 @@ function canViewerAccess(asset, viewerId) {
     return Boolean(asset.has_access_grant);
 }
 
+function buildProcessingDetails(asset) {
+    if (!asset) {
+        return null;
+    }
+
+    const message = asset.latest_job_error_message || null;
+
+    return {
+        status: asset.status,
+        jobStatus: asset.latest_job_status || null,
+        errorCode: asset.latest_job_error_code || null,
+        errorMessage: message ? String(message).slice(0, 1200) : null
+    };
+}
+
 function signPlaybackToken({ viewerId, mediaId }) {
     return jwt.sign(
         {
@@ -69,23 +84,28 @@ function verifyPlaybackToken(token, mediaId) {
 }
 
 async function createPlaybackSession(mediaId, viewerId) {
+    console.log(`[media-playback] session requested mediaId=${mediaId} viewerId=${viewerId}`);
     const asset = await mediaRepo.getMediaAssetForPlayback(mediaId, viewerId);
 
     if (!asset) {
+        console.warn(`[media-playback] session rejected mediaId=${mediaId} viewerId=${viewerId} reason=not_found`);
         throw new Error("Media asset not found");
     }
 
     if (!canViewerAccess(asset, viewerId)) {
+        console.warn(`[media-playback] session rejected mediaId=${mediaId} viewerId=${viewerId} reason=access_denied postId=${asset.post_id}`);
         throw new Error("You do not have access to this media");
     }
 
     if (!isPlayableStatus(asset.status)) {
+        console.log(`[media-playback] session pending mediaId=${mediaId} status=${asset.status} jobStatus=${asset.latest_job_status || "none"}`);
         return {
             mediaId: String(asset.id),
             status: asset.status,
             manifestUrl: null,
             posterUrl: asset.poster_url || null,
-            expiresAt: null
+            expiresAt: null,
+            processing: buildProcessingDetails(asset)
         };
     }
 
@@ -93,6 +113,8 @@ async function createPlaybackSession(mediaId, viewerId) {
     const manifestPath = latestRevision?.playlist_storage_key || "master/revision_1.m3u8";
     const token = signPlaybackToken({ viewerId, mediaId });
     const expiresAt = new Date(Date.now() + PLAYBACK_TTL_SECONDS * 1000).toISOString();
+
+    console.log(`[media-playback] session created mediaId=${mediaId} manifest=${manifestPath} expiresAt=${expiresAt}`);
 
     return {
         cookie: {
@@ -105,7 +127,8 @@ async function createPlaybackSession(mediaId, viewerId) {
             status: asset.status,
             manifestUrl: `/api/v1/media/playback/${asset.id}/${manifestPath}`,
             posterUrl: asset.poster_url || null,
-            expiresAt
+            expiresAt,
+            processing: buildProcessingDetails(asset)
         }
     };
 }
@@ -134,12 +157,14 @@ async function authorizePlaybackRequest(mediaId, cookieHeader) {
     const decoded = verifyPlaybackToken(token, mediaId);
 
     if (!decoded) {
+        console.warn(`[media-playback] object rejected mediaId=${mediaId} reason=invalid_session`);
         throw new Error("Invalid playback session");
     }
 
     const asset = await mediaRepo.getMediaAssetById(mediaId);
 
     if (!asset || !isPlayableStatus(asset.status)) {
+        console.warn(`[media-playback] object rejected mediaId=${mediaId} reason=not_playable status=${asset?.status || "missing"}`);
         throw new Error("Media is not playable");
     }
 

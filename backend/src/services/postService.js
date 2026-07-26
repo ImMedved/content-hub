@@ -313,12 +313,14 @@ function normalizeVideoUploadItem(data) {
 
 async function createVideoPost(userId, data) {
     const item = normalizeVideoUploadItem(data || {});
+    console.log(`[video-upload] received userId=${userId} filename=${item.filename} bytes=${item.parsed.buffer.length} mime=${item.parsed.mimeType}`);
     const originalKey = minioStorageService.buildObjectKey("videos/originals", item.filename, item.parsed.extension);
     const originalObject = await minioStorageService.putObject({
         key: originalKey,
         buffer: item.parsed.buffer,
         contentType: item.parsed.mimeType
     });
+    console.log(`[video-upload] stored original userId=${userId} key=${originalObject.key}`);
     const hlsStoragePrefix = `media/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const { postId, mediaId } = await postRepo.createVideoPost(userId, {
         title: item.title,
@@ -328,6 +330,7 @@ async function createVideoPost(userId, data) {
         hlsStoragePrefix,
         access: item.access
     });
+    console.log(`[video-upload] created post/media postId=${postId} mediaId=${mediaId} hlsPrefix=${hlsStoragePrefix}`);
 
     await postRepo.syncTags(postId, item.tags);
     await tagCacheService.addTags(item.tags);
@@ -338,6 +341,7 @@ async function createVideoPost(userId, data) {
         sourceKey: originalObject.key,
         hlsStoragePrefix
     });
+    console.log(`[video-upload] queued background processing postId=${postId} mediaId=${mediaId}`);
 
     return {
         postId,

@@ -6,6 +6,8 @@ function getCompressServiceUrl() {
 }
 
 async function requestHlsTranscode({ mediaId, sourceKey, hlsStoragePrefix }) {
+    const startedAt = Date.now();
+    console.log(`[video-processing] request compress start mediaId=${mediaId} sourceKey=${sourceKey} hlsPrefix=${hlsStoragePrefix}`);
     const response = await fetch(`${getCompressServiceUrl()}/video/hls`, {
         method: "POST",
         headers: {
@@ -22,19 +24,24 @@ async function requestHlsTranscode({ mediaId, sourceKey, hlsStoragePrefix }) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+        console.error(`[video-processing] request compress failed mediaId=${mediaId} status=${response.status} durationMs=${Date.now() - startedAt} error=${body.error || "unknown"}`);
         throw new Error(body.error || "Video compressor failed");
     }
 
+    console.log(`[video-processing] request compress done mediaId=${mediaId} durationMs=${Date.now() - startedAt} masterKey=${body.masterKey || "none"}`);
     return body;
 }
 
 async function processVideo({ mediaId, sourceKey, hlsStoragePrefix }) {
+    console.log(`[video-processing] job start mediaId=${mediaId} sourceKey=${sourceKey}`);
     try {
         await postRepo.markVideoProcessingStarted(mediaId);
         const result = await requestHlsTranscode({ mediaId, sourceKey, hlsStoragePrefix });
         await postRepo.markVideoPlayable(mediaId, result);
+        console.log(`[video-processing] job finished mediaId=${mediaId} status=playable renditions=${Array.isArray(result.renditions) ? result.renditions.length : 0}`);
     } catch (err) {
         await postRepo.markVideoProcessingFailed(mediaId, err.message);
+        console.error(`[video-processing] job failed mediaId=${mediaId} error=${err.message}`);
         throw err;
     }
 }

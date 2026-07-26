@@ -28,6 +28,7 @@ function LazyHlsVideo({
     const [manifestUrl, setManifestUrl] = useState(() => (isHlsUrl(src) ? src : ""));
     const [status, setStatus] = useState("");
     const [error, setError] = useState("");
+    const [details, setDetails] = useState("");
     const normalizedMediaId = mediaId || normalizeMediaId(src);
     const nativeVideoUrl = useMemo(() => {
         if (normalizedMediaId || isHlsUrl(src)) {
@@ -76,10 +77,14 @@ function LazyHlsVideo({
 
                 setStatus(session.status || "");
                 setManifestUrl(session.manifestUrl || "");
+                setDetails(buildProcessingDetails(session));
                 setError("");
             } catch (err) {
                 if (!cancelled) {
-                    setError(err?.response?.data?.error || err.message || "Video is unavailable");
+                    const responseError = err?.response?.data?.error;
+                    const responseDetails = err?.response?.data?.data?.processing;
+                    setDetails(responseDetails?.errorMessage || "");
+                    setError(responseError || err.message || "Video is unavailable");
                 }
             }
         }
@@ -94,12 +99,22 @@ function LazyHlsVideo({
     return (
         <div ref={rootRef} className="hls-video">
             {manifestUrl ? (
-                <HlsVideo
-                    manifestUrl={manifestUrl}
-                    posterUrl={posterUrl}
-                    autoPlay={autoPlay}
-                    className="hls-video__media"
-                />
+                <>
+                    <HlsVideo
+                        manifestUrl={manifestUrl}
+                        posterUrl={posterUrl}
+                        autoPlay={autoPlay}
+                        className="hls-video__media"
+                        onStatusChange={setStatus}
+                        onError={setError}
+                    />
+                    {(error || details) && (
+                        <div className="hls-video__diagnostics">
+                            {error && <div>{error}</div>}
+                            {details && <div>{details}</div>}
+                        </div>
+                    )}
+                </>
             ) : nativeVideoUrl ? (
                 <video
                     className="hls-video__media"
@@ -111,11 +126,42 @@ function LazyHlsVideo({
                 />
             ) : (
                 <div className="hls-video__placeholder">
-                    {error || (status ? `Video status: ${status}` : "Preparing video...")}
+                    <div className="hls-video__placeholder-title">
+                        {error || (status ? `Video status: ${status}` : "Preparing video...")}
+                    </div>
+                    {details && (
+                        <div className="hls-video__placeholder-details">
+                            {details}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
     );
+}
+
+function buildProcessingDetails(session) {
+    const processing = session?.processing;
+
+    if (!processing) {
+        return "";
+    }
+
+    const parts = [];
+
+    if (processing.jobStatus) {
+        parts.push(`job: ${processing.jobStatus}`);
+    }
+
+    if (processing.errorCode) {
+        parts.push(`code: ${processing.errorCode}`);
+    }
+
+    if (processing.errorMessage) {
+        parts.push(processing.errorMessage);
+    }
+
+    return parts.join(" | ");
 }
 
 export default LazyHlsVideo;

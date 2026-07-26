@@ -231,13 +231,21 @@ async function updateImagePostMedia(postId, { contentUrl, previewUrl }) {
 }
 
 async function markVideoProcessingStarted(mediaId) {
+    console.log(`[video-processing] db mark started mediaId=${mediaId}`);
     await db.query(
         "UPDATE media_asset SET status = 'processing_fast_version' WHERE id = ?",
+        [mediaId]
+    );
+    await db.query(
+        `UPDATE media_job
+         SET status = 'running', started_at = COALESCE(started_at, NOW())
+         WHERE media_id = ? AND type = 'VIDEO_HLS_TRANSCODE'`,
         [mediaId]
     );
 }
 
 async function markVideoProcessingFailed(mediaId, errorMessage) {
+    console.log(`[video-processing] db mark failed mediaId=${mediaId}`);
     await db.query(
         `UPDATE media_asset
          SET status = 'failed'
@@ -255,6 +263,7 @@ async function markVideoProcessingFailed(mediaId, errorMessage) {
 }
 
 async function markVideoPlayable(mediaId, result) {
+    console.log(`[video-processing] db mark playable mediaId=${mediaId} hlsPrefix=${result.hlsPrefix}`);
     const connection = await db.getConnection();
 
     try {

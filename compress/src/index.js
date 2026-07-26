@@ -57,7 +57,6 @@ export async function compressImages(config = loadConfig()) {
 export async function compressObject(minio, config, sourceName, destinationName) {
   const sourceStream = await minio.getObject(config.bucket, sourceName);
   const transformer = sharp()
-    .rotate()
     .webp({
       quality: config.quality,
       effort: config.effort

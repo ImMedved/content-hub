@@ -28,6 +28,16 @@ function isSafeRelativePath(value) {
     return normalized && !normalized.startsWith("/") && !normalized.split("/").includes("..");
 }
 
+function normalizePlaybackPath(value) {
+    const normalized = String(value || "").replace(/\\/g, "/");
+
+    if (normalized.startsWith("master/video/")) {
+        return normalized.slice("master/".length);
+    }
+
+    return normalized;
+}
+
 function setMediaHeaders(res, key, fallbackContentType) {
     res.setHeader("Content-Type", getContentType(key, fallbackContentType));
 
@@ -72,16 +82,19 @@ async function createPlaybackSession(req, res) {
         res.json({ data: result.payload || result, error: null });
     } catch (err) {
         const status = /access/i.test(err.message) ? 403 : 404;
+        console.error(`[media-controller] playback session failed mediaId=${req.params.mediaId} status=${status} error=${err.message}`);
         res.status(status).json({ data: null, error: err.message || "Playback session failed" });
     }
 }
 
 async function getPlaybackObject(req, res) {
     const mediaId = req.params[0];
-    const relativePath = req.params[1];
+    const requestedPath = req.params[1];
+    const relativePath = normalizePlaybackPath(requestedPath);
 
     try {
         if (!isSafeRelativePath(relativePath)) {
+            console.warn(`[media-playback] object rejected mediaId=${mediaId} requestedPath=${requestedPath} reason=unsafe_path`);
             res.status(400).json({ data: null, error: "Invalid media path" });
             return;
         }
@@ -92,12 +105,17 @@ async function getPlaybackObject(req, res) {
         );
         const prefix = String(asset.hls_storage_prefix || `media/${asset.id}`).replace(/\/+$/g, "");
         const key = `${prefix}/${relativePath}`;
+        console.log(`[media-playback] object request mediaId=${mediaId} requestedPath=${requestedPath} normalizedPath=${relativePath} key=${key}`);
         const stat = await minioStorageService.statObject(key);
         const stream = await minioStorageService.getObjectStream(key);
 
         setMediaHeaders(res, key, stat.metaData?.["content-type"]);
+        res.on("finish", () => {
+            console.log(`[media-playback] object served mediaId=${mediaId} status=${res.statusCode} key=${key}`);
+        });
         stream.pipe(res);
     } catch (err) {
+        console.error(`[media-playback] object failed mediaId=${mediaId} requestedPath=${requestedPath} normalizedPath=${relativePath} error=${err.message}`);
         res.status(403).json({ data: null, error: err.message || "Media not available" });
     }
 }

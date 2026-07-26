@@ -40,6 +40,11 @@ export async function createVideo(data) {
     return unwrapApiResponse(res);
 }
 
+export async function createAudio(data) {
+    const res = await client.post("/posts/audios", data);
+    return unwrapApiResponse(res);
+}
+
 export async function getImages(params = {}) {
     const res = await client.get("/posts/images", { params });
     return unwrapApiResponse(res);

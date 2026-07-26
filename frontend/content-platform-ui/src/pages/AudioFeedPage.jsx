@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { createVideo, getPosts } from "../api/post";
+import { createAudio, getPosts } from "../api/post";
 import { getApiErrorMessage } from "../api/response";
 import EmptyState from "../components/EmptyState";
 import PostCard from "../components/PostCard";
 import ScrollToTopButton from "../components/ScrollToTopButton";
-import { readFileAsDataUrl } from "../utils/postForm";
 import { useToast } from "../context/useToast";
+import { readFileAsDataUrl } from "../utils/postForm";
 
-function VideoFeedPage() {
+function AudioFeedPage() {
     const fileInputRef = useRef(null);
     const { showToast } = useToast();
     const [posts, setPosts] = useState([]);
@@ -16,13 +16,13 @@ function VideoFeedPage() {
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState("");
 
-    const loadVideos = useCallback(async () => {
+    const loadAudios = useCallback(async () => {
         setLoading(true);
         setError("");
 
         try {
             const data = await getPosts({
-                postKind: "video",
+                postKind: "audio",
                 limit: 30,
                 sort: "new"
             });
@@ -37,11 +37,11 @@ function VideoFeedPage() {
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
-            loadVideos();
+            loadAudios();
         }, 0);
 
         return () => clearTimeout(timeoutId);
-    }, [loadVideos]);
+    }, [loadAudios]);
 
     function openFilePicker() {
         fileInputRef.current?.click();
@@ -60,16 +60,16 @@ function VideoFeedPage() {
 
         try {
             const dataUrl = await readFileAsDataUrl(file);
-            await createVideo({
-                title: file.name.replace(/\.[^.]+$/, "") || "Video",
-                description: "Uploaded video",
+            await createAudio({
+                title: file.name.replace(/\.[^.]+$/, "") || "Audio",
+                description: "Uploaded audio",
                 filename: file.name,
                 file: dataUrl,
                 access: { type: "free", price: 0 },
-                tags: ["video"]
+                tags: ["audio"]
             });
-            showToast("Video upload started", "success");
-            await loadVideos();
+            showToast("Audio upload started", "success");
+            await loadAudios();
         } catch (err) {
             setError(getApiErrorMessage(err));
         } finally {
@@ -81,7 +81,7 @@ function VideoFeedPage() {
         <div className="page-stack">
             <div className="page-heading">
                 <div>
-                    <h1 className="page-title">Videos</h1>
+                    <h1 className="page-title">Audio</h1>
                 </div>
 
                 <div className="page-actions">
@@ -89,7 +89,7 @@ function VideoFeedPage() {
                         ref={fileInputRef}
                         className="visually-hidden"
                         type="file"
-                        accept="video/*"
+                        accept="audio/*"
                         onChange={handleFileChange}
                     />
                     <button
@@ -98,9 +98,9 @@ function VideoFeedPage() {
                         onClick={openFilePicker}
                         disabled={uploading}
                     >
-                        {uploading ? "Uploading..." : "Upload video"}
+                        {uploading ? "Uploading..." : "Upload audio"}
                     </button>
-                    <button className="btn btn--secondary" type="button" onClick={loadVideos} disabled={loading}>
+                    <button className="btn btn--secondary" type="button" onClick={loadAudios} disabled={loading}>
                         Refresh
                     </button>
                 </div>
@@ -113,10 +113,10 @@ function VideoFeedPage() {
                 <Link className="feed-content-tabs__item" to="/images">
                     Images
                 </Link>
-                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/videos">
+                <Link className="feed-content-tabs__item" to="/videos">
                     Videos
                 </Link>
-                <Link className="feed-content-tabs__item" to="/audio">
+                <Link className="feed-content-tabs__item feed-content-tabs__item--active" to="/audio">
                     Audio
                 </Link>
                 <Link className="feed-content-tabs__item" to="/tracks">
@@ -124,15 +124,15 @@ function VideoFeedPage() {
                 </Link>
             </div>
 
-            {loading && <EmptyState>Loading videos...</EmptyState>}
+            {loading && <EmptyState>Loading audio...</EmptyState>}
             {error && <EmptyState>{error}</EmptyState>}
             {!loading && !error && posts.length === 0 && (
-                <EmptyState>Upload a video to create the first video post.</EmptyState>
+                <EmptyState>Upload an audio file to create the first audio post.</EmptyState>
             )}
 
             <div className="post-list">
                 {posts.map((post) => (
-                    <PostCard key={`video-${post.id}`} post={post} animateOnScroll />
+                    <PostCard key={`audio-${post.id}`} post={post} animateOnScroll />
                 ))}
             </div>
 
@@ -141,4 +141,4 @@ function VideoFeedPage() {
     );
 }
 
-export default VideoFeedPage;
+export default AudioFeedPage;

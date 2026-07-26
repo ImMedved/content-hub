@@ -382,6 +382,12 @@ function FeedPage() {
                 <Link className="feed-content-tabs__item" to="/videos">
                     Videos
                 </Link>
+                <Link className="feed-content-tabs__item" to="/audio">
+                    Audio
+                </Link>
+                <Link className="feed-content-tabs__item" to="/tracks">
+                    Tracks
+                </Link>
             </div>
 
             <div className="feed-toolbar card">

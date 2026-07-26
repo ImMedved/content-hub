@@ -41,6 +41,15 @@ async function createVideo(req, res) {
         fail(res, 400, err.message);
     }
 }
+
+async function createAudio(req, res) {
+    try {
+        const result = await postService.createAudioPost(req.user.userId, req.body);
+        ok(res, result);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
 async function getPost(req, res) {
     try {
         const data = await postService.getPost(req.params.id, req.user?.userId || null);
@@ -150,6 +159,7 @@ async function getReactionUsers(req, res) {
 module.exports = {
     createPost,
     createImages,
+    createAudio,
     createVideo,
     getPost,
     listPosts,

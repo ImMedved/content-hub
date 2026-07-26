@@ -16,6 +16,11 @@ export async function sendMessage(userId, body) {
     return unwrapApiResponse(res);
 }
 
+export async function sendMediaMessage(userId, data) {
+    const res = await client.post(`/messages/${userId}/media`, data);
+    return unwrapApiResponse(res);
+}
+
 export async function waitForMessageUpdates(after = 0, signal) {
     const token = localStorage.getItem("token");
     const response = await fetch(`${API_ORIGIN}/api/v1/messages/stream?after=${after}`, {

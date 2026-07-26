@@ -9,6 +9,7 @@ const feedService = require("./feedService");
 const tagCacheService = require("./tagCacheService");
 const imageQueueService = require("./imageQueueService");
 const minioStorageService = require("./minioStorageService");
+const audioProcessingService = require("./audioProcessingService");
 const videoProcessingService = require("./videoProcessingService");
 const cache = require("./redisCacheService");
 const { parseDataUrl, saveDataUrl } = require("../utils/mediaStorage");
@@ -311,6 +312,29 @@ function normalizeVideoUploadItem(data) {
     };
 }
 
+function normalizeAudioUploadItem(data) {
+    const parsed = parseDataUrl(data?.file || data?.dataUrl || data?.value);
+
+    if (!parsed) {
+        throw new Error("Audio file payload is required");
+    }
+
+    if (!String(parsed.mimeType || "").startsWith("audio/")) {
+        throw new Error("Only audio files can be uploaded here");
+    }
+
+    const title = String(data?.title || data?.name || "Audio").trim().slice(0, POST_TITLE_LIMIT);
+
+    return {
+        title: title || "Audio",
+        description: String(data?.description || "").trim(),
+        tags: normalizeTags(data?.tags),
+        access: normalizeAccess(data?.access),
+        parsed,
+        filename: String(data?.filename || data?.name || `audio.${parsed.extension}`)
+    };
+}
+
 async function createVideoPost(userId, data) {
     const item = normalizeVideoUploadItem(data || {});
     console.log(`[video-upload] received userId=${userId} filename=${item.filename} bytes=${item.parsed.buffer.length} mime=${item.parsed.mimeType}`);
@@ -342,6 +366,45 @@ async function createVideoPost(userId, data) {
         hlsStoragePrefix
     });
     console.log(`[video-upload] queued background processing postId=${postId} mediaId=${mediaId}`);
+
+    return {
+        postId,
+        mediaId,
+        processingStatus: "queued"
+    };
+}
+
+async function createAudioPost(userId, data) {
+    const item = normalizeAudioUploadItem(data || {});
+    console.log(`[audio-upload] received userId=${userId} filename=${item.filename} bytes=${item.parsed.buffer.length} mime=${item.parsed.mimeType}`);
+    const originalKey = minioStorageService.buildObjectKey("audios/originals", item.filename, item.parsed.extension);
+    const originalObject = await minioStorageService.putObject({
+        key: originalKey,
+        buffer: item.parsed.buffer,
+        contentType: item.parsed.mimeType
+    });
+    console.log(`[audio-upload] stored original userId=${userId} key=${originalObject.key}`);
+    const hlsStoragePrefix = `media/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const { postId, mediaId } = await postRepo.createAudioPost(userId, {
+        title: item.title,
+        description: item.description,
+        originalUrl: originalObject.url,
+        originalStorageKey: originalObject.key,
+        hlsStoragePrefix,
+        access: item.access
+    });
+    console.log(`[audio-upload] created post/media postId=${postId} mediaId=${mediaId} hlsPrefix=${hlsStoragePrefix}`);
+
+    await postRepo.syncTags(postId, item.tags);
+    await tagCacheService.addTags(item.tags);
+    await invalidateAuthorFeeds(userId);
+
+    audioProcessingService.processAudioInBackground({
+        mediaId,
+        sourceKey: originalObject.key,
+        hlsStoragePrefix
+    });
+    console.log(`[audio-upload] queued background processing postId=${postId} mediaId=${mediaId}`);
 
     return {
         postId,
@@ -475,6 +538,7 @@ async function pinPost(userId, postId) {
 module.exports = {
     createPost,
     createImagePosts,
+    createAudioPost,
     createVideoPost,
     invalidateImageCaches,
     getPost,

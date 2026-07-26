@@ -18,6 +18,8 @@ import NewChatPage from "./pages/NewChatPage";
 import ChatPage from "./pages/ChatPage";
 import EditPostPage from "./pages/EditPostPage";
 import ImageFeedPage from "./pages/ImageFeedPage";
+import AudioFeedPage from "./pages/AudioFeedPage";
+import AudioTracksPage from "./pages/AudioTracksPage";
 import VideoFeedPage from "./pages/VideoFeedPage";
 import UserImagesPage from "./pages/UserImagesPage";
 
@@ -93,6 +95,28 @@ function App() {
                         <ProtectedRoute>
                             <Layout>
                                 <VideoFeedPage />
+                            </Layout>
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route
+                    path="/audio"
+                    element={
+                        <ProtectedRoute>
+                            <Layout>
+                                <AudioFeedPage />
+                            </Layout>
+                        </ProtectedRoute>
+                    }
+                />
+
+                <Route
+                    path="/tracks"
+                    element={
+                        <ProtectedRoute>
+                            <Layout>
+                                <AudioTracksPage />
                             </Layout>
                         </ProtectedRoute>
                     }

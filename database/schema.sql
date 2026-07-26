@@ -49,6 +49,8 @@ CREATE TABLE direct_message (
     sender_id BIGINT NOT NULL,
     recipient_id BIGINT NOT NULL,
     body TEXT NOT NULL,
+    message_kind VARCHAR(16) NOT NULL DEFAULT 'text',
+    media_asset_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     read_at TIMESTAMPTZ,
     CONSTRAINT chk_direct_message_not_self CHECK (sender_id <> recipient_id),
@@ -125,11 +127,14 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE media_asset (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     post_id BIGINT,
+    message_id BIGINT,
     owner_id BIGINT NOT NULL,
+    media_type VARCHAR(16) NOT NULL DEFAULT 'video',
     original_url VARCHAR(255) NOT NULL,
     original_storage_key VARCHAR(255),
     hls_storage_prefix VARCHAR(255),
     poster_url VARCHAR(255),
+    waveform_url VARCHAR(255),
     status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
     duration_seconds DECIMAL(12, 3),
     source_width INTEGER,
@@ -141,11 +146,13 @@ CREATE TABLE media_asset (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_media_asset_post FOREIGN KEY (post_id) REFERENCES post(id) ON DELETE CASCADE,
+    CONSTRAINT fk_media_asset_message FOREIGN KEY (message_id) REFERENCES direct_message(id) ON DELETE CASCADE,
     CONSTRAINT fk_media_asset_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_media_asset_owner_created ON media_asset (owner_id, created_at DESC);
 CREATE INDEX idx_media_asset_post_id ON media_asset (post_id);
+CREATE INDEX idx_media_asset_message_id ON media_asset (message_id);
 
 CREATE TABLE media_job (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -173,11 +180,17 @@ CREATE INDEX idx_media_job_poll ON media_job (status, available_at, priority DES
 CREATE TABLE media_rendition (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     media_id UUID NOT NULL,
+    media_kind VARCHAR(16) NOT NULL DEFAULT 'video',
     label VARCHAR(32) NOT NULL,
-    width INTEGER NOT NULL,
-    height INTEGER NOT NULL,
+    width INTEGER,
+    height INTEGER,
     bitrate_kbps INTEGER NOT NULL,
+    average_bandwidth INTEGER,
+    codec VARCHAR(64),
     crf INTEGER,
+    sample_rate INTEGER,
+    channel_count INTEGER,
+    channel_layout VARCHAR(64),
     playlist_storage_key VARCHAR(255),
     status VARCHAR(32) NOT NULL DEFAULT 'queued',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

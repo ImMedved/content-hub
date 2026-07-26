@@ -12,6 +12,14 @@ function getContentType(key, fallback) {
         return "video/iso.segment";
     }
 
+    if (normalizedKey.endsWith(".json")) {
+        return "application/json";
+    }
+
+    if (normalizedKey.endsWith(".m4a")) {
+        return "audio/mp4";
+    }
+
     if (normalizedKey.endsWith(".mp4")) {
         return "video/mp4";
     }
@@ -69,13 +77,19 @@ async function createPlaybackSession(req, res) {
             req.user.userId
         );
 
-        if (result.cookie) {
-            res.cookie(result.cookie.name, result.cookie.value, {
+        const cookies = Array.isArray(result.cookies)
+            ? result.cookies
+            : result.cookie
+                ? [result.cookie]
+                : [];
+
+        for (const cookie of cookies) {
+            res.cookie(cookie.name, cookie.value, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === "production",
                 sameSite: "lax",
                 path: "/api/v1/media/playback/",
-                maxAge: result.cookie.maxAge * 1000
+                maxAge: cookie.maxAge * 1000
             });
         }
 

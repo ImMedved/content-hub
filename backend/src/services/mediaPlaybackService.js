@@ -4,6 +4,10 @@ const mediaRepo = require("../repositories/mediaAssetRepository");
 const PLAYBACK_TTL_SECONDS = Number(process.env.MEDIA_PLAYBACK_TTL_SECONDS || 900);
 const COOKIE_NAME = "media_session";
 
+function getCookieName(mediaId) {
+    return `${COOKIE_NAME}_${String(mediaId || "").replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
 function getSecret() {
     if (!process.env.JWT_SECRET) {
         throw new Error("JWT secret is not configured");
@@ -22,6 +26,13 @@ function canViewerAccess(asset, viewerId) {
     }
 
     if (!asset.post_id) {
+        if (asset.message_id) {
+            return (
+                Number(asset.message_sender_id) === Number(viewerId) ||
+                Number(asset.message_recipient_id) === Number(viewerId)
+            );
+        }
+
         return Number(asset.owner_id) === Number(viewerId);
     }
 
@@ -101,9 +112,11 @@ async function createPlaybackSession(mediaId, viewerId) {
         console.log(`[media-playback] session pending mediaId=${mediaId} status=${asset.status} jobStatus=${asset.latest_job_status || "none"}`);
         return {
             mediaId: String(asset.id),
+            mediaType: asset.media_type || "video",
             status: asset.status,
             manifestUrl: null,
             posterUrl: asset.poster_url || null,
+            waveformUrl: asset.waveform_url || null,
             expiresAt: null,
             processing: buildProcessingDetails(asset)
         };
@@ -117,16 +130,25 @@ async function createPlaybackSession(mediaId, viewerId) {
     console.log(`[media-playback] session created mediaId=${mediaId} manifest=${manifestPath} expiresAt=${expiresAt}`);
 
     return {
-        cookie: {
-            name: COOKIE_NAME,
-            value: token,
-            maxAge: PLAYBACK_TTL_SECONDS
-        },
+        cookies: [
+            {
+                name: getCookieName(mediaId),
+                value: token,
+                maxAge: PLAYBACK_TTL_SECONDS
+            },
+            {
+                name: COOKIE_NAME,
+                value: token,
+                maxAge: PLAYBACK_TTL_SECONDS
+            }
+        ],
         payload: {
             mediaId: String(asset.id),
+            mediaType: asset.media_type || "video",
             status: asset.status,
             manifestUrl: `/api/v1/media/playback/${asset.id}/${manifestPath}`,
             posterUrl: asset.poster_url || null,
+            waveformUrl: asset.waveform_url || null,
             expiresAt,
             processing: buildProcessingDetails(asset)
         }
@@ -153,7 +175,7 @@ function parseCookies(header) {
 
 async function authorizePlaybackRequest(mediaId, cookieHeader) {
     const cookies = parseCookies(cookieHeader);
-    const token = cookies[COOKIE_NAME];
+    const token = cookies[getCookieName(mediaId)] || cookies[COOKIE_NAME];
     const decoded = verifyPlaybackToken(token, mediaId);
 
     if (!decoded) {

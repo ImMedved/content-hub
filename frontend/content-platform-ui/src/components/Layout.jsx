@@ -128,6 +128,24 @@ function Layout({ children }) {
                             Videos
                         </NavLink>
 
+                        <NavLink
+                            to="/audio"
+                            className={({ isActive }) =>
+                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
+                            }
+                        >
+                            Audio
+                        </NavLink>
+
+                        <NavLink
+                            to="/tracks"
+                            className={({ isActive }) =>
+                                `navbar__link ${isActive ? "navbar__link--active" : ""}`
+                            }
+                        >
+                            Tracks
+                        </NavLink>
+
                         {user?.id && (
                             <NavLink
                                 to={`/users/${user.id}`}

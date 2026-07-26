@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getConversation, sendMessage, waitForMessageUpdates } from "../api/message";
+import { getConversation, sendMediaMessage, sendMessage, waitForMessageUpdates } from "../api/message";
 import { getApiErrorMessage } from "../api/response";
 import { getUser } from "../api/user";
 import ChatPeerStatus from "../components/ChatPeerStatus";
+import LazyHlsAudio from "../components/LazyHlsAudio";
+import LazyHlsVideo from "../components/LazyHlsVideo";
 import { resolveMediaUrl } from "../utils/media";
 
 function mergeMessages(current, next) {
@@ -28,8 +30,12 @@ function ChatPage() {
     const [draft, setDraft] = useState("");
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [recordingType, setRecordingType] = useState("");
     const [error, setError] = useState("");
     const lastMessageIdRef = useRef(0);
+    const recorderRef = useRef(null);
+    const recorderChunksRef = useRef([]);
+    const recorderStreamRef = useRef(null);
 
     const loadConversation = useCallback(async (isBackgroundRefresh = false) => {
         if (!id) {
@@ -96,6 +102,126 @@ function ChatPage() {
         }
     }
 
+    function getRecordingMimeType(mediaType) {
+        const candidates = mediaType === "video"
+            ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+            : ["audio/webm;codecs=opus", "audio/webm"];
+
+        return candidates.find((item) => window.MediaRecorder?.isTypeSupported(item)) || "";
+    }
+
+    function blobToDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error || new Error("Failed to read recording"));
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    const stopRecorderStream = useCallback(() => {
+        if (recorderStreamRef.current) {
+            recorderStreamRef.current.getTracks().forEach((track) => track.stop());
+            recorderStreamRef.current = null;
+        }
+    }, []);
+
+    async function startRecording(mediaType) {
+        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+            setError("Recording is not supported in this browser");
+            return;
+        }
+
+        setError("");
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(
+                mediaType === "video" ? { audio: true, video: true } : { audio: true }
+            );
+            const mimeType = getRecordingMimeType(mediaType);
+            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+            recorderChunksRef.current = [];
+            recorderStreamRef.current = stream;
+            recorderRef.current = recorder;
+            setRecordingType(mediaType);
+
+            recorder.ondataavailable = (event) => {
+                if (event.data?.size > 0) {
+                    recorderChunksRef.current.push(event.data);
+                }
+            };
+
+            recorder.onstop = async () => {
+                const chunks = recorderChunksRef.current;
+                const type = recorder.mimeType || (mediaType === "video" ? "video/webm" : "audio/webm");
+                recorderRef.current = null;
+                recorderChunksRef.current = [];
+                setRecordingType("");
+                stopRecorderStream();
+
+                if (chunks.length === 0) {
+                    return;
+                }
+
+                setSending(true);
+
+                try {
+                    const blob = new Blob(chunks, { type });
+                    const file = await blobToDataUrl(blob);
+                    const createdMessage = await sendMediaMessage(id, {
+                        mediaType,
+                        file,
+                        filename: `${mediaType}-message-${Date.now()}.webm`,
+                        body: draft.trim()
+                    });
+                    setMessages((current) => mergeMessages(current, [createdMessage]));
+                    lastMessageIdRef.current = Math.max(lastMessageIdRef.current, createdMessage.id);
+                    setDraft("");
+                } catch (err) {
+                    setError(getApiErrorMessage(err));
+                } finally {
+                    setSending(false);
+                }
+            };
+
+            recorder.start();
+        } catch (err) {
+            stopRecorderStream();
+            setRecordingType("");
+            setError(getApiErrorMessage(err));
+        }
+    }
+
+    function stopRecording() {
+        if (recorderRef.current?.state === "recording") {
+            recorderRef.current.stop();
+        }
+    }
+
+    function renderMessageMedia(message) {
+        const mediaId = message.media_asset_id || "";
+        const source = mediaId ? `hls:${mediaId}` : "";
+
+        if (message.message_kind === "audio" && source) {
+            return (
+                <div className="chat-bubble__media chat-bubble__media--audio">
+                    <LazyHlsAudio src={source} mediaId={mediaId} />
+                </div>
+            );
+        }
+
+        if (message.message_kind === "video" && source) {
+            return (
+                <div className="chat-bubble__media chat-bubble__media--video">
+                    <LazyHlsVideo src={source} mediaId={mediaId} />
+                </div>
+            );
+        }
+
+        return null;
+    }
+
     useEffect(() => {
         async function initialLoad() {
             await loadConversation();
@@ -103,6 +229,13 @@ function ChatPage() {
 
         initialLoad();
     }, [id, loadConversation]);
+
+    useEffect(() => () => {
+        if (recorderRef.current?.state === "recording") {
+            recorderRef.current.stop();
+        }
+        stopRecorderStream();
+    }, [stopRecorderStream]);
 
     useEffect(() => {
         let cancelled = false;
@@ -203,7 +336,8 @@ function ChatPage() {
                                         <div className="chat-bubble__author">
                                             {message.sender.display_name || message.sender.username}
                                         </div>
-                                        <div className="chat-bubble__body">{message.body}</div>
+                                        {message.body && <div className="chat-bubble__body">{message.body}</div>}
+                                        {renderMessageMedia(message)}
                                     </div>
                                 );
                             })}
@@ -226,6 +360,30 @@ function ChatPage() {
                                 <button className="btn btn--primary" type="submit" disabled={sending}>
                                     {sending ? "Sending..." : "Send"}
                                 </button>
+                                {recordingType ? (
+                                    <button className="btn btn--danger" type="button" onClick={stopRecording}>
+                                        Stop {recordingType}
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button
+                                            className="btn btn--secondary"
+                                            type="button"
+                                            onClick={() => startRecording("audio")}
+                                            disabled={sending}
+                                        >
+                                            Record audio
+                                        </button>
+                                        <button
+                                            className="btn btn--secondary"
+                                            type="button"
+                                            onClick={() => startRecording("video")}
+                                            disabled={sending}
+                                        >
+                                            Record video
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </form>
                     </div>

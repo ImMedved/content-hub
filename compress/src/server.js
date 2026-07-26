@@ -1,6 +1,7 @@
 import express from "express";
 import { loadConfig } from "./config.js";
 import { compressSingleObject } from "./index.js";
+import { transcodeAudioToHls } from "./audio-hls.js";
 import { transcodeVideoToHls } from "./video-hls.js";
 
 const app = express();
@@ -62,6 +63,29 @@ app.post("/video/hls", async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error(`[video-hls] request failed mediaId=${mediaId || "missing"} sourceKey=${sourceKey || "missing"} status=failed durationMs=${Date.now() - startedAt} error=${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/audio/hls", async (req, res) => {
+  const mediaId = String(req.body?.mediaId || "");
+  const sourceKey = String(req.body?.sourceKey || "");
+  const startedAt = Date.now();
+
+  try {
+    console.log(`[audio-hls] request start mediaId=${mediaId || "missing"} sourceKey=${sourceKey || "missing"} destinationPrefix=${req.body?.destinationPrefix || "auto"}`);
+    const baseConfig = loadConfig({
+      ...process.env,
+      MINIO_BUCKET: req.body?.bucket || process.env.MINIO_BUCKET,
+      SOURCE_PREFIX: "",
+      DESTINATION_PREFIX: ""
+    });
+    const result = await transcodeAudioToHls(baseConfig, req.body || {});
+
+    console.log(`[audio-hls] request done mediaId=${mediaId} sourceKey=${sourceKey} status=ok durationMs=${Date.now() - startedAt} masterKey=${result.masterKey}`);
+    res.json(result);
+  } catch (error) {
+    console.error(`[audio-hls] request failed mediaId=${mediaId || "missing"} sourceKey=${sourceKey || "missing"} status=failed durationMs=${Date.now() - startedAt} error=${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });

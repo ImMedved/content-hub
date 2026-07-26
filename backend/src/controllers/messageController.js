@@ -32,6 +32,19 @@ async function sendMessage(req, res) {
     }
 }
 
+async function sendMediaMessage(req, res) {
+    try {
+        const message = await messageService.sendMediaMessage(
+            req.user.userId,
+            req.params.userId,
+            req.body || {}
+        );
+        ok(res, message);
+    } catch (err) {
+        fail(res, 400, err.message);
+    }
+}
+
 async function streamMessages(req, res) {
     try {
         const messages = await messageService.waitForUpdates(req.user.userId, req.query.after);
@@ -45,5 +58,6 @@ module.exports = {
     getChats,
     getConversation,
     sendMessage,
+    sendMediaMessage,
     streamMessages
 };

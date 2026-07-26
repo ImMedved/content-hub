@@ -9,6 +9,7 @@ import { resolveMediaUrl } from "../utils/media";
 import { normalizePostDetail } from "../utils/post";
 import useRevealOnScroll from "../utils/useRevealOnScroll";
 import CommentThread from "./CommentThread";
+import LazyHlsAudio from "./LazyHlsAudio";
 import LazyHlsVideo from "./LazyHlsVideo";
 import PostTagList from "./PostTagList";
 
@@ -241,6 +242,17 @@ function PostCard({
                         src={mediaUrl}
                         mediaId={item.media_id || item.media_asset_id || item.mediaId || ""}
                         posterUrl={currentPost.preview_url || ""}
+                    />
+                </div>
+            );
+        }
+
+        if (itemType === "audio" && mediaUrl) {
+            return (
+                <div key={key} className="post-card__audio">
+                    <LazyHlsAudio
+                        src={mediaUrl}
+                        mediaId={item.media_id || item.media_asset_id || item.mediaId || ""}
                     />
                 </div>
             );

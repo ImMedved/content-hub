@@ -6,6 +6,8 @@ const MESSAGE_SELECT = `
         dm.sender_id,
         dm.recipient_id,
         dm.body,
+        dm.message_kind,
+        dm.media_asset_id,
         dm.created_at,
         dm.read_at,
         sender.username AS sender_username,
@@ -25,6 +27,8 @@ function mapMessage(row) {
         sender_id: row.sender_id,
         recipient_id: row.recipient_id,
         body: row.body,
+        message_kind: row.message_kind || "text",
+        media_asset_id: row.media_asset_id || null,
         created_at: row.created_at,
         read_at: row.read_at,
         sender: {
@@ -49,6 +53,66 @@ async function createMessage(senderId, recipientId, body) {
     );
 
     return findById(result.insertId);
+}
+
+async function createMediaMessage(senderId, recipientId, data) {
+    const connection = await db.getConnection();
+
+    try {
+        await connection.beginTransaction();
+
+        const [messageResult] = await connection.query(
+            `INSERT INTO direct_message (sender_id, recipient_id, body, message_kind)
+             VALUES (?, ?, ?, ?) RETURNING id`,
+            [senderId, recipientId, data.body || "", data.mediaType]
+        );
+        const messageId = messageResult.insertId;
+
+        const [mediaRows] = await connection.query(
+            `WITH inserted AS (
+                INSERT INTO media_asset (
+                    message_id,
+                    owner_id,
+                    media_type,
+                    original_url,
+                    original_storage_key,
+                    hls_storage_prefix,
+                    status
+                 ) VALUES (?, ?, ?, ?, ?, ?, 'uploaded') RETURNING id
+             )
+             SELECT id FROM inserted`,
+            [
+                messageId,
+                senderId,
+                data.mediaType,
+                data.originalUrl,
+                data.originalStorageKey,
+                data.hlsStoragePrefix
+            ]
+        );
+        const mediaId = mediaRows[0]?.id;
+        const jobType = data.mediaType === "audio" ? "AUDIO_HLS_TRANSCODE" : "VIDEO_HLS_TRANSCODE";
+        const priority = data.mediaType === "audio" ? 880 : 900;
+
+        await connection.query(
+            "UPDATE direct_message SET media_asset_id = ? WHERE id = ?",
+            [mediaId, messageId]
+        );
+
+        await connection.query(
+            `INSERT INTO media_job (media_id, type, status, priority)
+             VALUES (?, ?, 'queued', ?)`,
+            [mediaId, jobType, priority]
+        );
+
+        await connection.commit();
+        return { messageId, mediaId };
+    } catch (err) {
+        await connection.rollback();
+        throw err;
+    } finally {
+        connection.release();
+    }
 }
 
 async function findById(messageId) {
@@ -86,6 +150,8 @@ async function getChats(userId) {
         `SELECT
             latest.id,
             latest.body,
+            latest.message_kind,
+            latest.media_asset_id,
             latest.created_at,
             latest.sender_id,
             latest.recipient_id,
@@ -127,6 +193,8 @@ async function getChats(userId) {
         last_message: {
             id: row.id,
             body: row.body,
+            message_kind: row.message_kind || "text",
+            media_asset_id: row.media_asset_id || null,
             sender_id: row.sender_id,
             recipient_id: row.recipient_id,
             created_at: row.created_at
@@ -162,6 +230,8 @@ async function getMessagesSince(userId, afterId) {
 
 module.exports = {
     createMessage,
+    createMediaMessage,
+    findById,
     getConversationMessages,
     markConversationRead,
     getChats,
